@@ -4,7 +4,7 @@ import * as draw from './draw.js';
 import { drawState, PEN_COLORS, MARKER_COLORS } from './draw.js';
 import { $, $$, clamp, escapeHtml, toast, openModal, closeModal, confirmDlg } from './util.js';
 import { searchBook, startOcr, ocrJob, ocrStatus } from './ocr.js';
-import { reorderPages } from './importer.js';
+import { reorderPages, repairBook } from './importer.js';
 import {
   CAUSES, INTERVALS, addMissFromBook, judgeMiss, bookMissNotes,
   resolvePage, cropRect, deleteMissNote, clearCropCache, daysUntil,
@@ -79,6 +79,10 @@ export function initReader() {
 export async function openBook(bookId, pageNo) {
   const book = await Books.get(bookId);
   if (!book) { toast('教科書が見つかりません'); return; }
+  // 並べ替え事故が残っていたら、開く前に自動修復する
+  try {
+    if (await repairBook(book)) toast('この本のデータを自動修復しました');
+  } catch (e) { console.error('repair failed', e); }
   R.book = book;
   R.total = book.pageCount;
   R.pageNo = clamp(pageNo || book.lastPage || 1, 1, R.total);
@@ -894,7 +898,12 @@ async function doReorder(op) {
   } catch (e) {
     console.error(e);
     closeModal();
-    toast('並べ替えに失敗しました');
+    openModal(`
+      <h3 class="modal-title">並べ替えが途中で止まりました</h3>
+      <p class="modal-msg">この本をひらき直すと<b>自動で修復</b>されます。データは消えていません。<br>
+        <small>容量不足が原因のこともあります（設定→保存領域を確認してね）<br>${escapeHtml(e?.message || '')}</small></p>
+      <div class="modal-btns"><button class="btn prime" data-x>OK</button></div>`)
+      .querySelector('[data-x]').onclick = closeModal;
   }
 }
 

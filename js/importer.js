@@ -1,5 +1,5 @@
 // PDF 取り込み: pdf.js で各ページを画像化して IndexedDB に保存する
-import { Books, Pages, Images, Strokes, dbDelByBook, dbDel, dbGet, dbPut } from './db.js';
+import { Books, Pages, Images, Strokes, dbDelByBook, dbDel, dbGet, dbPut, dbKeysByBook } from './db.js';
 import { uid, cleanText } from './util.js';
 import { rotateMissRects } from './misslink.js';
 
@@ -237,38 +237,66 @@ async function removeAppended(bookId, base, done) {
 // ページの並べ替え（入れ替え/移動）。画像・メタ・書き込みのページ番号を付け替え、
 // しおり・目次・「つづき」・表紙も追従させる。
 // op: {type:'swap', a, b} または {type:'move', from, to}（to=移動後の位置）
-export async function reorderPages(book, op, { onProgress } = {}) {
-  const n = book.pageCount;
-  const map = new Map(); // 旧ページ番号 -> 新ページ番号（変わるものだけ）
+//
+// 「玉突き」方式: 一時スロット(TEMP_BASE)に浮いているのは常に1ページだけ。
+// 手順は book.reorderPending に記録し、途中で失敗しても repairBook で必ず復旧できる。
+// 各手順は「無ければスキップ」なので、同じ手順をやり直しても壊れない（再開安全）。
+const TEMP_BASE = 1000000;
+
+function reorderMap(op) { // 旧ページ番号 -> 新ページ番号（しおり・目次の変換用）
+  const map = new Map();
   if (op.type === 'swap') {
-    if (op.a === op.b) return book;
     map.set(op.a, op.b);
     map.set(op.b, op.a);
   } else {
     const { from, to } = op;
-    if (from === to) return book;
     if (from < to) { for (let p = from + 1; p <= to; p++) map.set(p, p - 1); }
     else { for (let p = to; p < from; p++) map.set(p, p + 1); }
     map.set(from, to);
   }
-  for (const [a, b] of map) {
-    if (a < 1 || a > n || b < 1 || b > n) throw new Error('ページ番号が範囲外です');
+  return map;
+}
+
+function reorderSteps(op) { // 実行する移動 [from, to] の列（順に実行すれば衝突しない）
+  const s = [];
+  if (op.type === 'swap') {
+    if (op.a === op.b) return s;
+    s.push([op.a, TEMP_BASE], [op.b, op.a], [TEMP_BASE, op.b]);
+  } else {
+    const { from, to } = op;
+    if (from === to) return s;
+    s.push([from, TEMP_BASE]);
+    if (from < to) { for (let p = from + 1; p <= to; p++) s.push([p, p - 1]); }
+    else { for (let p = from - 1; p >= to; p--) s.push([p, p + 1]); }
+    s.push([TEMP_BASE, to]);
+  }
+  return s;
+}
+
+export async function reorderPages(book, op, { onProgress } = {}) {
+  const n = book.pageCount;
+  const nums = op.type === 'swap' ? [op.a, op.b] : [op.from, op.to];
+  for (const v of nums) {
+    if (!Number.isInteger(v) || v < 1 || v > n) throw new Error('ページ番号が範囲外です');
+  }
+  const steps = reorderSteps(op);
+  if (!steps.length) return book;
+
+  // 同じ操作の途中なら続きから（それ以外は最初から）
+  const resume = book.reorderPending && JSON.stringify(book.reorderPending.op) === JSON.stringify(op)
+    ? (book.reorderPending.done || 0) : 0;
+  book.reorderPending = { op, done: resume };
+  await Books.put(book);
+
+  for (let i = resume; i < steps.length; i++) {
+    await movePageRecords(book.id, steps[i][0], steps[i][1]);
+    book.reorderPending.done = i + 1;
+    await Books.put(book);
+    onProgress?.(i + 1, steps.length);
   }
 
-  // キー衝突を避けるため、対象ページをいったん一時番号に逃してから新番号へ置く
-  const TEMP = 1000000;
-  const moves = [...map.entries()];
-  const total = moves.length * 2;
-  let step = 0;
-  for (let i = 0; i < moves.length; i++) {
-    await movePageRecords(book.id, moves[i][0], TEMP + i);
-    onProgress?.(++step, total);
-  }
-  for (let i = 0; i < moves.length; i++) {
-    await movePageRecords(book.id, TEMP + i, moves[i][1]);
-    onProgress?.(++step, total);
-  }
-
+  delete book.reorderPending;
+  const map = reorderMap(op);
   const remap = no => map.get(no) ?? no;
   book.bookmarks = (book.bookmarks || []).map(remap).sort((x, y) => x - y);
   book.toc = (book.toc || []).map(t => ({ ...t, page: remap(t.page) })).sort((x, y) => x.page - y.page);
@@ -297,6 +325,41 @@ async function movePageRecords(bookId, fromNo, toNo) {
       await dbDel(storeName, [bookId, fromNo]);
     }
   }
+}
+
+// ============================================================
+// 並べ替え事故からの自動復旧（本を開くたびに呼ばれる。正常時はほぼ何もしない）
+// 1) 途中で止まった並べ替え(reorderPending)があれば、続きを実行して完了させる
+// 2) 一時スロットに取り残されたページを、欠番へ順番に戻す（古い事故のサルベージ）
+export async function repairBook(book) {
+  let did = false;
+  if (book.reorderPending?.op) {
+    await reorderPages(book, book.reorderPending.op);
+    did = true;
+  }
+  for (const storeName of ['images', 'pages', 'strokes']) {
+    const keys = (await dbKeysByBook(storeName, book.id)).map(k => k[1]);
+    const temps = keys.filter(no => no >= TEMP_BASE).sort((a, b) => a - b);
+    if (!temps.length) continue;
+    const have = new Set(keys.filter(no => no < TEMP_BASE));
+    const missing = [];
+    for (let p = 1; p <= book.pageCount; p++) if (!have.has(p)) missing.push(p);
+    for (let i = 0; i < temps.length; i++) {
+      if (i < missing.length) {
+        const rec = await dbGet(storeName, [book.id, temps[i]]);
+        if (rec) {
+          rec.pageNo = missing[i];
+          await dbPut(storeName, rec);
+        }
+        await dbDel(storeName, [book.id, temps[i]]);
+      } else {
+        // 行き先の欠番がない = 移動済みの複製が残っただけなので消してよい
+        await dbDel(storeName, [book.id, temps[i]]);
+      }
+    }
+    did = true;
+  }
+  return did;
 }
 
 // ============================================================

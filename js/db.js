@@ -53,6 +53,9 @@ export async function dbAll(name) { return reqProm((await store(name)).getAll())
 export async function dbAllByBook(name, bookId) {
   return reqProm((await store(name)).index('byBook').getAll(bookId));
 }
+export async function dbKeysByBook(name, bookId) {
+  return reqProm((await store(name)).index('byBook').getAllKeys(bookId));
+}
 
 export async function dbDelByBook(name, bookId) {
   const s = await store(name, 'readwrite');

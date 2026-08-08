@@ -719,7 +719,7 @@ async function openSettings() {
         <input type="file" id="stImportFile" accept="application/json,.json" hidden>
       </div>
     </div>
-    <p class="modal-note">じぶん教科書 v1.5 ・ 教科書 ${books.length}冊<br>データはこの端末の中だけに保存されます</p>
+    <p class="modal-note">じぶん教科書 v1.6 ・ 教科書 ${books.length}冊<br>データはこの端末の中だけに保存されます</p>
     <div class="modal-btns"><button class="btn prime" data-x>閉じる</button></div>`);
   box.querySelector('[data-x]').onclick = closeModal;
   box.querySelector('#stPersist')?.addEventListener('click', async () => {

@@ -231,6 +231,7 @@ img { -webkit-user-drag: none; user-select: none; }
 #judgeBar {
   position: absolute; z-index: 65;
   left: 12px; right: 12px; bottom: calc(env(safe-area-inset-bottom) + 118px);
+  max-width: 600px; margin: 0 auto;
   display: flex; align-items: center; gap: 10px;
   background: var(--panel); border-radius: 16px; padding: 10px 10px 10px 16px;
   box-shadow: 0 8px 30px rgba(0, 0, 0, .45);
@@ -292,8 +293,11 @@ img { -webkit-user-drag: none; user-select: none; }
   bottom: 0;
   padding: 6px calc(env(safe-area-inset-right) + 10px) calc(env(safe-area-inset-bottom) + 8px) calc(env(safe-area-inset-left) + 10px);
   background: linear-gradient(transparent, rgba(10, 12, 16, .6) 26%, rgba(10, 12, 16, .82));
-  display: flex; flex-direction: column; gap: 6px;
+  display: flex; flex-direction: column; gap: 6px; align-items: center;
 }
+/* iPadの広い画面ではボタン列が間延びしないよう中央にまとめる */
+.rd-bottom > * { width: 100%; max-width: 600px; }
+.rd-bottom .subtools { width: max-content; max-width: 96%; }
 .rd-bottom.hidden-bar { transform: translateY(110%); opacity: 0; pointer-events: none; }
 
 .rd-titles { flex: 1; min-width: 0; margin: 0 4px; }
@@ -571,6 +575,7 @@ img { -webkit-user-drag: none; user-select: none; }
 #ocrBar {
   position: fixed; z-index: 90;
   left: 12px; right: 12px; bottom: calc(env(safe-area-inset-bottom) + 96px);
+  max-width: 640px; margin: 0 auto;
   display: flex; align-items: center; gap: 10px;
   background: var(--panel); border: 1px solid var(--line); border-radius: 14px;
   padding: 10px 14px; box-shadow: var(--shadow); font-size: 13px;
@@ -597,4 +602,8 @@ body.reading #ocrBar { bottom: auto; top: calc(env(safe-area-inset-top) + 100px)
   .book-grid { grid-template-columns: repeat(auto-fill, minmax(124px, 1fr)); gap: 14px 12px; }
   .brand h1 { display: none; }
   .tool-btn { width: 41px; height: 41px; }
+}
+/* さらに狭い幅（iPadのSplit View 1/3 など）では書きこみツールを折り返す */
+@media (max-width: 380px) {
+  .toolbar { flex-wrap: wrap; overflow-x: visible; }
 }

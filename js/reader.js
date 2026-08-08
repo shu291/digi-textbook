@@ -51,6 +51,8 @@ export function initReader() {
     panel: $('#sidePanel'), panelBody: $('#panelBody'),
     undoBtn: $('#undoBtn'), redoBtn: $('#redoBtn'), sheetBtn: $('#sheetBtn'),
     missBtn: $('#missBtn'), judgeBar: $('#judgeBar'),
+    penTools: $('#penTools'), mainActions: $('#mainActions'),
+    penDrawerBtn: $('#penDrawerBtn'), penCloseBtn: $('#penCloseBtn'),
   });
 
   // 3 スロット生成
@@ -94,7 +96,7 @@ export async function openBook(bookId, pageNo) {
   el.reader.hidden = false;
   el.title.textContent = book.title;
   el.slider.max = R.total;
-  setTool('hand');
+  setPenDrawer(false);
   setSheet(false);
   setMissMode(false);
   hideJudgeBar();
@@ -111,28 +113,35 @@ export async function openBook(bookId, pageNo) {
   window.dispatchEvent(new CustomEvent('shelf-refresh'));
 }
 
-export async function closeReader() {
-  if (!R.open && el.reader.hidden) return;
-  await draw.saveNow();
-  draw.clearPage();
-  if (R.book) {
-    R.book.lastPage = R.pageNo;
-    await Books.put(R.book);
-  }
-  R.open = false;
-  R.book = null;
+export function closeReader() {
+  if (el.reader.hidden) return Promise.resolve();
+  // 見た目は押した瞬間に本棚へ切り替える（保存・後始末は裏で続ける）
   hideJudgeBar();
   R.missMode = false;
   el.missBtn?.classList.remove('active');
-  R.missByPage.clear();
   document.body.classList.remove('reading');
   el.reader.hidden = true;
-  for (const u of R.urls.values()) URL.revokeObjectURL(u);
+  const book = R.book;
+  const page = R.pageNo;
+  R.open = false;
+  R.book = null;
+  R.missByPage.clear();
+  const oldUrls = [...R.urls.values(), ...R.thumbUrls.values()];
   R.urls.clear();
-  for (const u of R.thumbUrls.values()) URL.revokeObjectURL(u);
   R.thumbUrls.clear();
-  window.dispatchEvent(new CustomEvent('shelf-refresh'));
-  window.dispatchEvent(new CustomEvent('miss-refresh'));
+  return (async () => {
+    try {
+      await draw.saveNow();
+      if (!R.open) draw.clearPage(); // すでに別の本を開いていたら触らない
+      if (book) {
+        book.lastPage = page;
+        await Books.put(book);
+      }
+    } catch (e) { console.error(e); }
+    for (const u of oldUrls) URL.revokeObjectURL(u);
+    window.dispatchEvent(new CustomEvent('shelf-refresh'));
+    window.dispatchEvent(new CustomEvent('miss-refresh'));
+  })();
 }
 
 // ============================================================ レイアウト
@@ -599,6 +608,8 @@ function bindUi() {
   el.redoBtn.onclick = () => draw.redo();
   el.sheetBtn.onclick = () => setSheet(!drawState.sheetMode);
   el.missBtn.onclick = () => setMissMode(!R.missMode);
+  el.penDrawerBtn.onclick = () => setPenDrawer(true);
+  el.penCloseBtn.onclick = () => setPenDrawer(false);
   $('#jbOk').onclick = () => judgeAndClose(true);
   $('#jbNg').onclick = () => judgeAndClose(false);
   $('#jbLater').onclick = hideJudgeBar;
@@ -656,11 +667,18 @@ function setMissMode(on) {
   el.missBtn?.classList.toggle('active', on);
   if (on) {
     if (drawState.sheetMode) setSheet(false);
-    setTool('hand');
+    setPenDrawer(false);
     R.missMode = true; // setTool が解除するので立て直す
     el.missBtn?.classList.add('active');
     toast('まちがえた問題を四角く囲んでね');
   }
+}
+
+// 書きこみツールの引き出し（ふだんは収納して主要ボタンを見せる）
+function setPenDrawer(open) {
+  el.penTools.hidden = !open;
+  el.mainActions.hidden = open;
+  if (!open) setTool('hand');
 }
 
 function renderSubTools() {
@@ -713,7 +731,7 @@ function sizeRow(active) {
 
 function setSheet(on) {
   draw.setSheetMode(on);
-  if (on) setTool('hand'); // タップで開閉しやすいように
+  if (on) setPenDrawer(false); // タップで開閉しやすいように収納して閲覧モードへ
   updateSheetHud();
   const cur = R.slots[1];
   // 前後スロットにも反映

@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<title>じぶん教科書</title>
+<meta name="description" content="スキャンした教科書を読む・書き込む・赤シートで覚えるデジタル教科書">
+<meta name="theme-color" content="#f3efe6" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#12151b" media="(prefers-color-scheme: dark)">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icon-180.png">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="じぶん教科書">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<!-- ================= 本棚 ================= -->
+<main id="shelf">
+  <header class="shelf-head">
+    <div class="brand">
+      <svg viewBox="0 0 24 24" width="26" height="26" aria-hidden="true" class="brand-icon">
+        <path d="M2 4h6a4 4 0 0 1 4 4v13a3 3 0 0 0-3-3H2z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/>
+        <path d="M22 4h-6a4 4 0 0 0-4 4v13a3 3 0 0 1 3-3h7z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/>
+      </svg>
+      <h1>じぶん教科書</h1>
+    </div>
+    <div class="shelf-search">
+      <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
+        <circle cx="11" cy="11" r="7" fill="none" stroke="currentColor" stroke-width="2"/>
+        <path d="m21 21-4.3-4.3" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+      </svg>
+      <input id="globalSearch" type="search" placeholder="ぜんぶの教科書から検索" enterkeyhint="search" autocomplete="off">
+    </div>
+    <button class="icon-btn" id="settingsBtn" aria-label="設定">
+      <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+        <path d="M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3"/>
+        <path d="M1.5 14h5M9.5 8h5M17.5 16h5"/>
+      </svg>
+    </button>
+  </header>
+
+  <section id="searchResults" hidden></section>
+  <section id="bookGrid" class="book-grid"></section>
+
+  <button id="addBtn" class="fab" aria-label="教科書を追加">
+    <svg viewBox="0 0 24 24" width="26" height="26" aria-hidden="true">
+      <path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/>
+    </svg>
+  </button>
+  <input type="file" id="pdfInput" accept="application/pdf,.pdf" hidden>
+</main>
+
+<!-- ================= リーダー ================= -->
+<section id="reader" hidden>
+  <div id="stage">
+    <div id="zoomWrap"><div id="pageRow"></div></div>
+  </div>
+
+  <header id="rdHead" class="rd-bar rd-top">
+    <button class="icon-btn" id="backBtn" aria-label="本棚へ戻る">
+      <svg viewBox="0 0 24 24" width="22" height="22"><path d="m15 18-6-6 6-6" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    </button>
+    <div class="rd-titles">
+      <div id="rdTitle"></div>
+      <div id="rdPageInd"></div>
+    </div>
+    <button class="icon-btn" id="rdSearchBtn" aria-label="この本の中を検索">
+      <svg viewBox="0 0 24 24" width="20" height="20"><circle cx="11" cy="11" r="7" fill="none" stroke="currentColor" stroke-width="2"/><path d="m21 21-4.3-4.3" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+    </button>
+    <button class="icon-btn" id="bookmarkBtn" aria-label="しおり">
+      <svg viewBox="0 0 24 24" width="20" height="20"><path d="m19 21-7-4-7 4V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2Z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" class="bm-shape"/></svg>
+    </button>
+    <button class="icon-btn" id="panelBtn" aria-label="目次・しおり・ページ一覧">
+      <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M8 6h13M8 12h13M8 18h13"/><path d="M3 6h.01M3 12h.01M3 18h.01" stroke-width="2.6"/></svg>
+    </button>
+    <button class="icon-btn" id="rdMenuBtn" aria-label="メニュー">
+      <svg viewBox="0 0 24 24" width="20" height="20"><circle cx="5" cy="12" r="1.8" fill="currentColor"/><circle cx="12" cy="12" r="1.8" fill="currentColor"/><circle cx="19" cy="12" r="1.8" fill="currentColor"/></svg>
+    </button>
+  </header>
+
+  <div id="rdSearchBar" hidden>
+    <input id="rdSearchInput" type="search" placeholder="この本の中を検索" enterkeyhint="search" autocomplete="off">
+    <button class="icon-btn" id="rdSearchClose" aria-label="検索を閉じる">✕</button>
+  </div>
+
+  <div id="sheetHud" hidden>
+    <span id="sheetCount"></span>
+    <button class="mini-btn" id="sheetHideAll">ぜんぶかくす</button>
+    <button class="mini-btn" id="sheetShowAll">ぜんぶ見る</button>
+  </div>
+
+  <footer id="rdFoot" class="rd-bar rd-bottom">
+    <div class="slider-row">
+      <input type="range" id="pageSlider" min="1" max="1" value="1" aria-label="ページ移動">
+    </div>
+    <div id="subTools" class="subtools" hidden></div>
+    <div class="toolbar">
+      <button class="tool-btn active" data-tool="hand" aria-label="移動モード">
+        <svg viewBox="0 0 24 24" width="21" height="21" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M5 9 2 12l3 3M9 5l3-3 3 3M15 19l-3 3-3-3M19 9l3 3-3 3M2 12h20M12 2v20"/>
+        </svg>
+      </button>
+      <button class="tool-btn" data-tool="pen" aria-label="ペン">
+        <svg viewBox="0 0 24 24" width="21" height="21"><path d="M17 3l4 4L7.5 20.5 2 22l1.5-5.5Z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg>
+      </button>
+      <button class="tool-btn" data-tool="marker" aria-label="マーカー">
+        <svg viewBox="0 0 24 24" width="21" height="21" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="m9 11-6 6v3h9l3-3"/><path d="m22 12-4.6 4.6a2 2 0 0 1-2.8 0l-5.2-5.2a2 2 0 0 1 0-2.8L14 4z"/>
+        </svg>
+      </button>
+      <button class="tool-btn memo-btn" data-tool="memo" aria-label="暗記マーカー（緑）">
+        <svg viewBox="0 0 24 24" width="21" height="21" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="m9 11-6 6v3h9l3-3"/><path d="m22 12-4.6 4.6a2 2 0 0 1-2.8 0l-5.2-5.2a2 2 0 0 1 0-2.8L14 4z"/>
+        </svg>
+        <span class="memo-dot"></span>
+      </button>
+      <button class="tool-btn" data-tool="eraser" aria-label="消しゴム">
+        <svg viewBox="0 0 24 24" width="21" height="21" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="m7 21-4.3-4.3a2 2 0 0 1 0-2.8l9.6-9.6a2 2 0 0 1 2.8 0l5.6 5.6a2 2 0 0 1 0 2.8L13 21"/>
+          <path d="M22 21H7"/><path d="m5 12 8 8"/>
+        </svg>
+      </button>
+      <span class="tool-sep"></span>
+      <button class="tool-btn" id="undoBtn" aria-label="もどす" disabled>
+        <svg viewBox="0 0 24 24" width="21" height="21" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M3 7v6h6"/><path d="M21 17a9 9 0 0 0-15-6.7L3 13"/>
+        </svg>
+      </button>
+      <button class="tool-btn" id="redoBtn" aria-label="やり直す" disabled>
+        <svg viewBox="0 0 24 24" width="21" height="21" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M21 7v6h-6"/><path d="M3 17a9 9 0 0 1 15-6.7L21 13"/>
+        </svg>
+      </button>
+      <span class="tool-sep"></span>
+      <button class="tool-btn sheet-btn" id="sheetBtn" aria-label="赤シート">
+        <span class="sheet-label">赤</span>
+      </button>
+    </div>
+  </footer>
+
+  <aside id="sidePanel" hidden>
+    <div class="panel-head">
+      <nav id="panelTabs">
+        <button data-tab="toc" class="active">目次</button>
+        <button data-tab="bookmarks">しおり</button>
+        <button data-tab="pages">ページ</button>
+      </nav>
+      <button class="icon-btn" id="panelClose" aria-label="閉じる">✕</button>
+    </div>
+    <div id="panelBody"></div>
+  </aside>
+</section>
+
+<!-- ================= 共通 ================= -->
+<div id="ocrBar" hidden></div>
+<div id="modalRoot" hidden></div>
+<div id="toast" hidden></div>
+
+<script type="module" src="js/main.js"></script>
+</body>
+</html>

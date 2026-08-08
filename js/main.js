@@ -2,8 +2,12 @@
 import { openDb, Books, Pages, Strokes, Prefs } from './db.js';
 import { importPdf, appendPdf, rotateBook, makePdfPreview } from './importer.js';
 import { startOcr, cancelOcr, ocrJob, searchAll, ocrStatus } from './ocr.js';
-import { initReader, openBook } from './reader.js';
+import { initReader, openBook, openBookForMiss } from './reader.js';
 import { drawState } from './draw.js';
+import {
+  bookMissNotes, dueMissNotes, getMissNote, deleteMissOfBook, noteCropUrl,
+  INTERVALS, daysUntil, today, startOfDay,
+} from './misslink.js';
 import {
   $, $$, SUBJECTS, subjectOf, escapeHtml, fmtBytes, toast, clamp,
   openModal, closeModal, confirmDlg, downloadBlob,
@@ -25,12 +29,122 @@ async function init() {
     const book = await Books.get(e.detail);
     if (book) rotateFlow(book);
   });
+  window.addEventListener('miss-refresh', () => {
+    if (currentView === 'miss') renderMissView();
+    else refreshMissBadge();
+  });
+  $$('.view-tabs .vt').forEach(b => { b.onclick = () => switchView(b.dataset.view); });
+  refreshMissBadge();
+
+  // ミスノートからのリンク (#miss=id) で該当問題に直行
+  if (location.hash.startsWith('#miss=')) {
+    const id = decodeURIComponent(location.hash.slice(6));
+    history.replaceState(null, '', location.pathname + location.search);
+    try {
+      const note = await getMissNote(id);
+      if (note?.ref) openBookForMiss(note);
+    } catch { /* 無効なリンクは無視 */ }
+  }
   try { await navigator.storage?.persist?.(); } catch { /* 対応外ブラウザ */ }
   // 本番(https)では常に有効。localhost開発中は ?sw を付けたときだけ
   const swWanted = location.protocol === 'https:' ||
     (['localhost', '127.0.0.1'].includes(location.hostname) && new URLSearchParams(location.search).has('sw'));
   if ('serviceWorker' in navigator && swWanted) {
     navigator.serviceWorker.register('./sw.js').catch(() => {});
+  }
+}
+
+// ============================================================ 本棚 / ミス復習 タブ
+let currentView = 'shelf';
+
+function switchView(v) {
+  currentView = v;
+  $$('.view-tabs .vt').forEach(b => b.classList.toggle('active', b.dataset.view === v));
+  const missOn = v === 'miss';
+  $('#missView').hidden = !missOn;
+  $('#searchResults').hidden = true;
+  $('#bookGrid').hidden = missOn;
+  $('.shelf-search').style.visibility = missOn ? 'hidden' : '';
+  if (missOn) renderMissView();
+  else if ($('#globalSearch').value.trim()) runGlobalSearch();
+}
+
+function updateMissBadge(count) {
+  const b = $('#missBadge');
+  if (!b) return;
+  b.hidden = !count;
+  b.textContent = count;
+}
+
+async function refreshMissBadge() {
+  try { updateMissBadge((await dueMissNotes()).length); } catch { /* 連携なしでも動く */ }
+}
+
+const dueLabel = n => {
+  if (n.mastered) return '🎉';
+  const d = daysUntil(n.dueAt);
+  return d < 0 ? `${-d}日おくれ` : d === 0 ? 'きょう' : d === 1 ? 'あした' : `${d}日後`;
+};
+
+async function renderMissView() {
+  const wrap = $('#missView');
+  let all = [];
+  try { all = await bookMissNotes(); } catch { /* DBなし */ }
+  if (!all.length) {
+    wrap.innerHTML = `
+      <div class="shelf-empty">
+        <h2>まちがえた問題がここに戻ってくる</h2>
+        <p>教科書を開いて、まちがえた問題を <b>✗ボタン → 四角く囲んで登録</b>。<br>
+        1→3→7→16→35日の間隔で、ここに復習として出てきます。</p>
+      </div>`;
+    updateMissBadge(0);
+    return;
+  }
+  const t = today();
+  const due = [], later = [], done = [];
+  for (const n of all) {
+    if (n.mastered) done.push(n);
+    else if (startOfDay(n.dueAt) <= t) due.push(n);
+    else later.push(n);
+  }
+  due.sort((a, b) => a.dueAt - b.dueAt || a.createdAt - b.createdAt);
+  later.sort((a, b) => a.dueAt - b.dueAt);
+  done.sort((a, b) => b.createdAt - a.createdAt);
+
+  const card = n => `
+    <button class="miss-card ${n.mastered ? 'done' : ''}" data-id="${n.id}">
+      <span class="mc-img"><img alt=""></span>
+      <span class="mc-body">
+        <span class="mc-title">${escapeHtml(n.ref.bookTitle)}</span>
+        <span class="mc-meta">
+          <span class="mc-dots">${INTERVALS.map((_, i) => `<i class="${i < n.step ? 'on' : ''}"></i>`).join('')}</span>
+          ${n.cause && n.cause !== '未分類' ? `<span class="mc-tag">${escapeHtml(n.cause)}</span>` : ''}
+          <span class="mc-due">${dueLabel(n)}</span>
+        </span>
+      </span>
+    </button>`;
+
+  wrap.innerHTML = `
+    <section class="miss-sec">
+      <h2>きょうの復習 <span class="miss-count">${due.length}問</span></h2>
+      ${due.length ? due.map(card).join('') : '<p class="miss-empty">きょうの分はぜんぶ終わり！えらい！</p>'}
+    </section>
+    ${later.length ? `<section class="miss-sec"><h2>これから</h2>${later.map(card).join('')}</section>` : ''}
+    ${done.length ? `<section class="miss-sec"><h2>定着ずみ <span class="miss-count">${done.length}問</span></h2>${done.map(card).join('')}</section>` : ''}
+    <p class="modal-note" style="text-align:center">タップすると教科書のその問題に飛んで、解き直し→判定ができます</p>`;
+
+  $$('.miss-card', wrap).forEach(c => {
+    c.onclick = () => {
+      const note = all.find(n => n.id === c.dataset.id);
+      if (note) openBookForMiss(note);
+    };
+  });
+  updateMissBadge(due.length);
+  // サムネは非同期で流し込む（教科書の画像からその場で切り抜き）
+  for (const n of all) {
+    const img = wrap.querySelector(`.miss-card[data-id="${n.id}"] img`);
+    if (!img) continue;
+    noteCropUrl(n).then(u => { if (u && img.isConnected) img.src = u; });
   }
 }
 
@@ -229,12 +343,17 @@ async function openBookMenu(book) {
   };
   box.querySelector('#bmDel').onclick = async () => {
     closeModal();
+    let missCount = 0;
+    try { missCount = (await bookMissNotes(book.id)).length; } catch { /* 連携なし */ }
+    const extra = missCount ? `<br><small>ミスノートに登録した ${missCount}問もいっしょに消えます</small>` : '';
     const ok = await confirmDlg(
-      `「${escapeHtml(book.title)}」を削除する？<br><small>ページも書き込みもぜんぶ消えて、元に戻せません</small>`,
+      `「${escapeHtml(book.title)}」を削除する？<br><small>ページも書き込みもぜんぶ消えて、元に戻せません</small>${extra}`,
       { ok: '削除する', danger: true });
     if (!ok) return;
     await Books.remove(book.id);
+    if (missCount) await deleteMissOfBook(book.id);
     await renderShelf();
+    refreshMissBadge();
     toast('削除しました');
   };
 }
@@ -600,7 +719,7 @@ async function openSettings() {
         <input type="file" id="stImportFile" accept="application/json,.json" hidden>
       </div>
     </div>
-    <p class="modal-note">じぶん教科書 v1.4 ・ 教科書 ${books.length}冊<br>データはこの端末の中だけに保存されます</p>
+    <p class="modal-note">じぶん教科書 v1.5 ・ 教科書 ${books.length}冊<br>データはこの端末の中だけに保存されます</p>
     <div class="modal-btns"><button class="btn prime" data-x>閉じる</button></div>`);
   box.querySelector('[data-x]').onclick = closeModal;
   box.querySelector('#stPersist')?.addEventListener('click', async () => {

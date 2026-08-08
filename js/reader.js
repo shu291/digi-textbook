@@ -5,6 +5,11 @@ import { drawState, PEN_COLORS, MARKER_COLORS } from './draw.js';
 import { $, $$, clamp, escapeHtml, toast, openModal, closeModal, confirmDlg } from './util.js';
 import { searchBook, startOcr, ocrJob, ocrStatus } from './ocr.js';
 import { reorderPages } from './importer.js';
+import {
+  CAUSES, INTERVALS, addMissFromBook, judgeMiss, bookMissNotes,
+  resolvePage, cropRect, deleteMissNote, clearCropCache, daysUntil,
+} from './misslink.js';
+import { uid } from './util.js';
 
 const CANVAS_LONG = 1600; // 書き込みレイヤーの内部解像度（長辺）
 
@@ -22,6 +27,9 @@ const R = {
   animating: false,
   open: false,
   reorder: null, // 並べ替えモード: { picked: pageNo|null }
+  missMode: false,        // ✗ミス登録モード（ドラッグで範囲を囲む）
+  missByPage: new Map(),  // pageNo -> [note]（この本のミス登録）
+  judgeTarget: null,      // 判定バーの対象 note
 };
 
 const el = {};
@@ -42,6 +50,7 @@ export function initReader() {
     subTools: $('#subTools'), sheetHud: $('#sheetHud'),
     panel: $('#sidePanel'), panelBody: $('#panelBody'),
     undoBtn: $('#undoBtn'), redoBtn: $('#redoBtn'), sheetBtn: $('#sheetBtn'),
+    missBtn: $('#missBtn'), judgeBar: $('#judgeBar'),
   });
 
   // 3 スロット生成
@@ -83,10 +92,13 @@ export async function openBook(bookId, pageNo) {
   el.slider.max = R.total;
   setTool('hand');
   setSheet(false);
+  setMissMode(false);
+  hideJudgeBar();
   showUi(true);
   closePanel();
   hideSearchBar();
 
+  await loadMissNotes();
   relayout();
   await gotoPage(R.pageNo, { instant: true });
 
@@ -105,6 +117,10 @@ export async function closeReader() {
   }
   R.open = false;
   R.book = null;
+  hideJudgeBar();
+  R.missMode = false;
+  el.missBtn?.classList.remove('active');
+  R.missByPage.clear();
   document.body.classList.remove('reading');
   el.reader.hidden = true;
   for (const u of R.urls.values()) URL.revokeObjectURL(u);
@@ -112,6 +128,7 @@ export async function closeReader() {
   for (const u of R.thumbUrls.values()) URL.revokeObjectURL(u);
   R.thumbUrls.clear();
   window.dispatchEvent(new CustomEvent('shelf-refresh'));
+  window.dispatchEvent(new CustomEvent('miss-refresh'));
 }
 
 // ============================================================ レイアウト
@@ -171,6 +188,7 @@ async function setSlot(slot, pageNo, isCurrent) {
   if (pageNo < 1 || pageNo > R.total) {
     slot.root.style.visibility = 'hidden';
     slot.img.removeAttribute('src');
+    slot.box.querySelectorAll('.miss-mark').forEach(m => m.remove());
     return;
   }
   slot.root.style.visibility = '';
@@ -193,6 +211,7 @@ async function setSlot(slot, pageNo, isCurrent) {
   } else {
     draw.drawStatic(ctx, list, slot.canvas.width, slot.canvas.height, drawState.sheetMode);
   }
+  renderMissMarks(slot);
 }
 
 // ============================================================ ページ移動
@@ -321,6 +340,15 @@ function bindGestures() {
     }
 
     if (pointers.size === 1) {
+      // ✗ミス登録モード: ドラッグで範囲を囲む
+      if (R.missMode) {
+        const mpt = toPageNorm(e);
+        if (mpt) {
+          gesture = { type: 'missrect', start: mpt, cur: mpt };
+          updateMissSel(gesture);
+          return;
+        }
+      }
       const wantsDraw = draw.isDrawingTool() &&
         (e.pointerType === 'pen' || e.pointerType === 'mouse' || (e.pointerType === 'touch' && drawState.fingerDraw));
       const pt = wantsDraw ? toPageNorm(e) : null;
@@ -335,6 +363,7 @@ function bindGestures() {
       }
     } else if (pointers.size === 2) {
       if (gesture?.type === 'draw') draw.endStroke(true); // 誤タッチ: 描きかけ破棄
+      if (gesture?.type === 'missrect') updateMissSel(null);
       if (gesture?.type === 'press' && gesture.rowDx) setRowBase(0, false);
       const [p1, p2] = [...pointers.values()];
       gesture = {
@@ -350,6 +379,12 @@ function bindGestures() {
     if (!pointers.has(e.pointerId)) return;
     pointers.set(e.pointerId, { x: e.clientX, y: e.clientY, type: e.pointerType });
     if (!gesture) return;
+
+    if (gesture.type === 'missrect') {
+      const pt = toPageNorm(e);
+      if (pt) { gesture.cur = pt; updateMissSel(gesture); }
+      return;
+    }
 
     if (gesture.type === 'draw') {
       let evs = e.getCoalescedEvents ? e.getCoalescedEvents() : [];
@@ -403,6 +438,12 @@ function bindGestures() {
     pointers.delete(e.pointerId);
     if (!wasIn || !gesture) return;
 
+    if (gesture.type === 'missrect') {
+      const g = gesture;
+      gesture = null;
+      finishMissRect(g);
+      return;
+    }
     if (gesture.type === 'draw') {
       draw.endStroke();
       gesture = null;
@@ -431,6 +472,7 @@ function bindGestures() {
   stage.addEventListener('pointercancel', e => {
     pointers.delete(e.pointerId);
     if (gesture?.type === 'draw') draw.endStroke(true);
+    if (gesture?.type === 'missrect') updateMissSel(null);
     if (gesture?.type === 'press' && gesture.rowDx) setRowBase(0, true);
     gesture = null;
   });
@@ -440,6 +482,20 @@ function bindGestures() {
     if (drawState.sheetMode) {
       const pt = toPageNorm(e);
       if (pt && draw.sheetTap(pt.x, pt.y)) { updateSheetHud(); return; }
+    }
+    // ミス印のタップで状況を表示
+    if (!R.missMode && drawState.tool === 'hand') {
+      const pt = toPageNorm(e);
+      if (pt) {
+        const list = R.missByPage.get(R.pageNo) || [];
+        for (let i = list.length - 1; i >= 0; i--) {
+          const [mx, my, mw, mh] = list[i].ref.rect;
+          if (pt.x >= mx && pt.x <= mx + mw && pt.y >= my && pt.y <= my + mh) {
+            openMissInfo(list[i]);
+            return;
+          }
+        }
+      }
     }
     const rect = el.stage.getBoundingClientRect();
     const rx = (e.clientX - rect.left) / rect.width;
@@ -538,6 +594,10 @@ function bindUi() {
   el.undoBtn.onclick = () => draw.undo();
   el.redoBtn.onclick = () => draw.redo();
   el.sheetBtn.onclick = () => setSheet(!drawState.sheetMode);
+  el.missBtn.onclick = () => setMissMode(!R.missMode);
+  $('#jbOk').onclick = () => judgeAndClose(true);
+  $('#jbNg').onclick = () => judgeAndClose(false);
+  $('#jbLater').onclick = hideJudgeBar;
 
   $('#sheetHideAll').onclick = () => { draw.setAllHidden(true); updateSheetHud(); };
   $('#sheetShowAll').onclick = () => { draw.setAllHidden(false); updateSheetHud(); };
@@ -582,8 +642,21 @@ function updateSheetHud() {
 // ---- ツール ----
 function setTool(tool) {
   drawState.tool = tool;
+  if (R.missMode && tool !== 'hand') { R.missMode = false; el.missBtn?.classList.remove('active'); }
   $$('#rdFoot [data-tool]').forEach(b => b.classList.toggle('active', b.dataset.tool === tool));
   renderSubTools();
+}
+
+function setMissMode(on) {
+  R.missMode = on;
+  el.missBtn?.classList.toggle('active', on);
+  if (on) {
+    if (drawState.sheetMode) setSheet(false);
+    setTool('hand');
+    R.missMode = true; // setTool が解除するので立て直す
+    el.missBtn?.classList.add('active');
+    toast('まちがえた問題を四角く囲んでね');
+  }
 }
 
 function renderSubTools() {
@@ -847,6 +920,179 @@ function addTocEntry() {
     renderPanel();
     toast('目次に追加しました');
   };
+}
+
+// ============================================================ ミスノート連携
+async function loadMissNotes() {
+  R.missByPage.clear();
+  try {
+    const [notes, pages] = await Promise.all([bookMissNotes(R.book.id), Pages.byBook(R.book.id)]);
+    const byUid = new Map(pages.filter(p => p.uid).map(p => [p.uid, p.pageNo]));
+    for (const n of notes) {
+      const pageNo = byUid.get(n.ref.pageUid);
+      if (!pageNo) continue;
+      if (!R.missByPage.has(pageNo)) R.missByPage.set(pageNo, []);
+      R.missByPage.get(pageNo).push(n);
+    }
+  } catch { /* ミスノートDBが開けなくても読書は続行 */ }
+}
+
+// ページ上の✗印（登録済みミスの範囲）
+function renderMissMarks(slot) {
+  slot.box.querySelectorAll('.miss-mark').forEach(m => m.remove());
+  const list = R.missByPage.get(slot.pageNo);
+  if (!list) return;
+  for (const n of list) {
+    const [x, y, w, h] = n.ref.rect;
+    const d = document.createElement('div');
+    d.className = 'miss-mark' + (n.mastered ? ' done' : '');
+    d.style.left = (x * 100) + '%';
+    d.style.top = (y * 100) + '%';
+    d.style.width = (w * 100) + '%';
+    d.style.height = (h * 100) + '%';
+    d.dataset.note = n.id;
+    d.innerHTML = `<span class="mm-badge">${n.mastered ? '✓' : '✗'}</span>`;
+    slot.box.appendChild(d);
+  }
+}
+
+// 囲み中の選択枠
+function updateMissSel(g) {
+  const box = R.slots[1].box;
+  let sel = box.querySelector('.miss-sel');
+  if (!g) { sel?.remove(); return; }
+  if (!sel) {
+    sel = document.createElement('div');
+    sel.className = 'miss-sel';
+    box.appendChild(sel);
+  }
+  const x = Math.min(g.start.x, g.cur.x), y = Math.min(g.start.y, g.cur.y);
+  const w = Math.abs(g.cur.x - g.start.x), h = Math.abs(g.cur.y - g.start.y);
+  sel.style.left = (x * 100) + '%';
+  sel.style.top = (y * 100) + '%';
+  sel.style.width = (w * 100) + '%';
+  sel.style.height = (h * 100) + '%';
+}
+
+async function finishMissRect(g) {
+  updateMissSel(null);
+  const x = Math.min(g.start.x, g.cur.x), y = Math.min(g.start.y, g.cur.y);
+  const w = Math.abs(g.cur.x - g.start.x), h = Math.abs(g.cur.y - g.start.y);
+  if (w < 0.04 || h < 0.02) { toast('もう少し大きく囲んでね'); return; }
+  const rect = [x, y, w, h];
+  const pageNo = R.pageNo;
+  const url = await cropRect(R.book.id, pageNo, rect, 640);
+  let cause = null;
+  const box = openModal(`
+    <h3 class="modal-title">ミスノートに登録</h3>
+    ${url ? `<div class="miss-prev"><img src="${url}" alt="問題の切り抜き"></div>` : ''}
+    <div class="field"><span>まちがえた原因（えらばなくてもOK）</span>
+      <div class="subject-picker">${CAUSES.map(c =>
+        `<button class="subject-opt" data-c="${escapeHtml(c)}" style="--sc:#d0563b">${escapeHtml(c)}</button>`).join('')}</div>
+    </div>
+    <p class="modal-note">画像はコピーせず「この本のこの場所」として登録します。あした復習に出ます。</p>
+    <div class="modal-btns">
+      <button class="btn ghost" data-x>やめる</button>
+      <button class="btn prime" data-ok>登録する</button>
+    </div>`, { sticky: true });
+  $$('.subject-opt', box).forEach(b => {
+    b.onclick = () => {
+      cause = b.dataset.c === cause ? null : b.dataset.c;
+      $$('.subject-opt', box).forEach(o => o.classList.toggle('active', o.dataset.c === cause));
+    };
+  });
+  box.querySelector('[data-x]').onclick = () => {
+    if (url) URL.revokeObjectURL(url);
+    closeModal();
+  };
+  box.querySelector('[data-ok]').onclick = async () => {
+    if (url) URL.revokeObjectURL(url);
+    try {
+      const page = await Pages.get(R.book.id, pageNo);
+      if (!page.uid) { page.uid = uid(); await Pages.put(page); } // ページに背番号を付ける
+      const note = await addMissFromBook(R.book, page.uid, rect, cause);
+      if (!R.missByPage.has(pageNo)) R.missByPage.set(pageNo, []);
+      R.missByPage.get(pageNo).push(note);
+      renderMissMarks(R.slots[1]);
+      closeModal();
+      setMissMode(false);
+      toast('ミスノートに登録！あした復習に出るよ');
+      window.dispatchEvent(new CustomEvent('miss-refresh'));
+    } catch (e2) {
+      console.error(e2);
+      closeModal();
+      toast('登録に失敗しました');
+    }
+  };
+}
+
+const fmtDue = t => {
+  const d = daysUntil(t);
+  return d <= 0 ? 'きょう' : d === 1 ? 'あした' : `${d}日後`;
+};
+
+async function openMissInfo(n) {
+  const url = await cropRect(n.ref.bookId, R.pageNo, n.ref.rect, 640);
+  const st = n.mastered
+    ? '定着ずみ 🎉'
+    : `定着ステップ ${n.step} / ${INTERVALS.length} ・ 次の復習: ${n.dueAt ? fmtDue(n.dueAt) : '—'}`;
+  const box = openModal(`
+    <h3 class="modal-title">登録ずみのミス</h3>
+    ${url ? `<div class="miss-prev"><img src="${url}" alt=""></div>` : ''}
+    <p class="modal-msg">${escapeHtml(st)}<br>
+      <small>原因: ${escapeHtml(n.cause || '未分類')} ・ 登録 ${new Date(n.createdAt).toLocaleDateString('ja-JP')}</small></p>
+    <div class="modal-btns">
+      <button class="btn ghost" id="miDel">登録をとり消す</button>
+      <button class="btn prime" data-x>閉じる</button>
+    </div>`);
+  const cleanup = () => { if (url) URL.revokeObjectURL(url); };
+  box.querySelector('[data-x]').onclick = () => { cleanup(); closeModal(); };
+  box.querySelector('#miDel').onclick = async () => {
+    cleanup();
+    closeModal();
+    const ok = await confirmDlg('このミスの登録をとり消す？<br><small>復習の予定からも消えます</small>', { ok: 'とり消す', danger: true });
+    if (!ok) return;
+    await deleteMissNote(n.id);
+    const list = R.missByPage.get(R.pageNo) || [];
+    R.missByPage.set(R.pageNo, list.filter(m => m.id !== n.id));
+    renderMissMarks(R.slots[1]);
+    toast('とり消しました');
+    window.dispatchEvent(new CustomEvent('miss-refresh'));
+  };
+}
+
+// ミス一覧やミスノートから「この問題を解き直す」で呼ばれる
+export async function openBookForMiss(note) {
+  const pageNo = await resolvePage(note.ref.bookId, note.ref.pageUid);
+  if (!pageNo) {
+    toast('この問題のページが見つかりません（本が削除されたかも）');
+    return;
+  }
+  await openBook(note.ref.bookId, pageNo);
+  R.judgeTarget = note;
+  el.judgeBar.hidden = false;
+  setTimeout(() => {
+    R.slots[1].box.querySelector(`.miss-mark[data-note="${note.id}"]`)?.classList.add('pulse');
+  }, 350);
+}
+
+function hideJudgeBar() {
+  if (el.judgeBar) el.judgeBar.hidden = true;
+  R.judgeTarget = null;
+  R.slots?.[1]?.box.querySelector('.miss-mark.pulse')?.classList.remove('pulse');
+}
+
+async function judgeAndClose(ok) {
+  const n = R.judgeTarget;
+  if (!n) return;
+  await judgeMiss(n, ok);
+  hideJudgeBar();
+  await loadMissNotes();
+  for (const s of R.slots) if (s.pageNo) renderMissMarks(s);
+  toast(ok
+    ? (n.mastered ? 'ぜんぶクリア！この問題は定着ずみ🎉' : `できた！次は ${fmtDue(n.dueAt)} に出るよ`)
+    : 'ドンマイ！あしたまた出すよ');
+  window.dispatchEvent(new CustomEvent('miss-refresh'));
 }
 
 // ============================================================ リーダー内検索

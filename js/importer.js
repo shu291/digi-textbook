@@ -1,6 +1,7 @@
 // PDF 取り込み: pdf.js で各ページを画像化して IndexedDB に保存する
 import { Books, Pages, Images, Strokes, dbDelByBook, dbDel, dbGet, dbPut } from './db.js';
 import { uid, cleanText } from './util.js';
+import { rotateMissRects } from './misslink.js';
 
 const PDFJS_VER = '4.6.82';
 const PDFJS_URL = `https://cdn.jsdelivr.net/npm/pdfjs-dist@${PDFJS_VER}/build/pdf.min.mjs`;
@@ -351,6 +352,9 @@ export async function rotateBook(book, quarterTurns, { from = 1, to = 0, onProgr
         }
         await Strokes.put(sRec);
       }
+
+      // ミスノートの登録範囲も一緒に回す
+      try { await rotateMissRects(book.id, pageRec.uid, turns); } catch { /* 連携なしでも続行 */ }
 
       if (i === 1) book.cover = await makeScaled(c, COVER_W, 0.82);
     }

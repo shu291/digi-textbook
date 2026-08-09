@@ -30,6 +30,7 @@ const R = {
   missMode: false,        // ✗ミス登録モード（ドラッグで範囲を囲む）
   missByPage: new Map(),  // pageNo -> [note]（この本のミス登録）
   judgeTarget: null,      // 判定バーの対象 note
+  pageLock: false,        // ページ固定（スワイプ・タップ・キーでめくれない）
 };
 
 const el = {};
@@ -53,6 +54,7 @@ export function initReader() {
     missBtn: $('#missBtn'), judgeBar: $('#judgeBar'),
     penTools: $('#penTools'), mainActions: $('#mainActions'),
     penDrawerBtn: $('#penDrawerBtn'), penCloseBtn: $('#penCloseBtn'),
+    lockBtn: $('#lockBtn'),
   });
 
   // 3 スロット生成
@@ -105,6 +107,7 @@ export async function openBook(bookId, pageNo) {
   hideSearchBar();
 
   await loadMissNotes();
+  setPageLock(false, true);
   relayout();
   await gotoPage(R.pageNo, { instant: true });
 
@@ -245,6 +248,7 @@ async function gotoPage(n, { instant = false } = {}) {
 }
 
 function flipTo(dir) { // dir: +1 / -1
+  if (R.pageLock) { lockToast(); return; }
   if (R.animating) return;
   const target = R.pageNo + dir;
   if (target < 1 || target > R.total) { setRowBase(0, true); return; }
@@ -438,6 +442,7 @@ function bindGestures() {
         clampView();
         applyView();
       } else {
+        if (R.pageLock) return; // ページ固定中はスワイプ追従もしない
         let rowDx = dx;
         if ((R.pageNo <= 1 && dx > 0) || (R.pageNo >= R.total && dx < 0)) rowDx = dx * 0.3;
         gesture.rowDx = rowDx;
@@ -474,6 +479,7 @@ function bindGestures() {
       gesture = null;
       const dt = Date.now() - g.t0;
       if (!g.moved && dt < 400) { handleTap(e); return; }
+      if (R.pageLock && R.view.scale <= 1.01 && Math.abs(e.clientX - g.x0) > 40) { lockToast(); return; }
       if (R.view.scale <= 1.01 && g.rowDx) {
         const vel = Math.abs(g.rowDx) / Math.max(1, dt);
         if (Math.abs(g.rowDx) > R.stageW * 0.16 || vel > 0.45) flipTo(g.rowDx < 0 ? 1 : -1);
@@ -610,6 +616,7 @@ function bindUi() {
   el.missBtn.onclick = () => setMissMode(!R.missMode);
   el.penDrawerBtn.onclick = () => setPenDrawer(true);
   el.penCloseBtn.onclick = () => setPenDrawer(false);
+  el.lockBtn.onclick = () => setPageLock(!R.pageLock);
   $('#jbOk').onclick = () => judgeAndClose(true);
   $('#jbNg').onclick = () => judgeAndClose(false);
   $('#jbLater').onclick = hideJudgeBar;
@@ -679,6 +686,26 @@ function setPenDrawer(open) {
   el.penTools.hidden = !open;
   el.mainActions.hidden = open;
   if (!open) setTool('hand');
+}
+
+// ページ固定（誤ってめくれないようにする）
+function setPageLock(on, silent = false) {
+  R.pageLock = on;
+  el.lockBtn.classList.toggle('active', on);
+  $('#lockOpenIcon').hidden = on;
+  $('#lockClosedIcon').hidden = !on;
+  if (silent) return;
+  toast(on
+    ? 'ページ固定ON：スワイプやタップではめくれません（スライダーはOK）'
+    : 'ページ固定を解除しました');
+}
+
+let lastLockToast = 0;
+function lockToast() {
+  const now = Date.now();
+  if (now - lastLockToast < 2000) return;
+  lastLockToast = now;
+  toast('ページ固定中です（🔒をタップで解除）');
 }
 
 function renderSubTools() {

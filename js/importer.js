@@ -48,6 +48,14 @@ function rotateOnto(src, sw, sh, turns) {
   return c;
 }
 
+// 画像ファイルやページ画像から表紙サイズの画像を作る
+export async function makeCoverBlob(blob) {
+  const img = new Image();
+  const url = URL.createObjectURL(blob);
+  try { img.src = url; await img.decode(); } finally { setTimeout(() => URL.revokeObjectURL(url), 0); }
+  return makeScaled(img, COVER_W, 0.82);
+}
+
 // PDFの1ページ目を小さな画像にする（追加時の向きプレビュー用）
 export async function makePdfPreview(file, maxLong = 360) {
   const pdfjs = await loadPdfjs();
@@ -302,8 +310,8 @@ export async function reorderPages(book, op, { onProgress } = {}) {
   book.toc = (book.toc || []).map(t => ({ ...t, page: remap(t.page) })).sort((x, y) => x.page - y.page);
   book.lastPage = remap(book.lastPage || 1);
 
-  // 1ページ目が入れ替わったら表紙を作り直す
-  if ([...map.values()].includes(1)) {
+  // 1ページ目が入れ替わったら表紙を作り直す（自分で設定した表紙はそのまま）
+  if (!book.coverCustom && [...map.values()].includes(1)) {
     const imgRec = await Images.get(book.id, 1);
     if (imgRec?.blob) {
       const img = new Image();
@@ -419,7 +427,7 @@ export async function rotateBook(book, quarterTurns, { from = 1, to = 0, onProgr
       // ミスノートの登録範囲も一緒に回す
       try { await rotateMissRects(book.id, pageRec.uid, turns); } catch { /* 連携なしでも続行 */ }
 
-      if (i === 1) book.cover = await makeScaled(c, COVER_W, 0.82);
+      if (i === 1 && !book.coverCustom) book.cover = await makeScaled(c, COVER_W, 0.82);
     }
     book.rotatePending.done = i;
     await Books.put(book);

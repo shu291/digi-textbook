@@ -1,6 +1,6 @@
 // 本棚・PDF取り込み・全体検索・設定・バックアップ・OCR進捗バー
-import { openDb, Books, Pages, Strokes, Prefs } from './db.js';
-import { importPdf, appendPdf, rotateBook, makePdfPreview } from './importer.js';
+import { openDb, Books, Pages, Images, Strokes, Prefs } from './db.js';
+import { importPdf, appendPdf, rotateBook, makePdfPreview, makeCoverBlob } from './importer.js';
 import { startOcr, cancelOcr, ocrJob, searchAll, ocrStatus } from './ocr.js';
 import { initReader, openBook, openBookForMiss } from './reader.js';
 import { drawState } from './draw.js';
@@ -321,6 +321,7 @@ async function openBookMenu(book) {
         <small>続きのスキャンPDFをこの本の後ろにつなげます</small>
       </button>
       <button class="menu-item" id="bmEdit"><span>名前・教科を変える</span></button>
+      <button class="menu-item" id="bmCover"><span>表紙を変える</span><small>写真や本の中のページを表紙にできます</small></button>
       <button class="menu-item" id="bmOcr" ${ocrJob.running ? 'disabled' : ''}>
         <span>文字認識（OCR）を実行</span>
         <small>文字データ ${st.withText} / ${st.total} ページ${ocrJob.running ? '・実行中…' : ''}</small>
@@ -336,6 +337,7 @@ async function openBookMenu(book) {
   box.querySelector('#bmOpen').onclick = () => { closeModal(); openBook(book.id); };
   box.querySelector('#bmAppend').onclick = () => { closeModal(); appendFlow(book); };
   box.querySelector('#bmEdit').onclick = () => { closeModal(); editBookDialog(book); };
+  box.querySelector('#bmCover').onclick = () => { closeModal(); coverDialog(book); };
   box.querySelector('#bmRotate').onclick = () => { closeModal(); rotateFlow(book); };
   box.querySelector('#bmOcr').onclick = () => {
     closeModal();
@@ -499,6 +501,100 @@ function confirmAppend(book, file) {
         <div class="modal-btns"><button class="btn prime" data-x>閉じる</button></div>`;
       box.querySelector('[data-x]').onclick = closeModal;
     }
+  };
+}
+
+// ============================================================ 表紙を変える
+function coverDialog(book) {
+  let coverUrl = book.cover ? URL.createObjectURL(book.cover) : '';
+  const box = openModal(`
+    <h3 class="modal-title">表紙を変える</h3>
+    <div class="rot-stage"><img id="cvPreview" src="${coverUrl}" alt="現在の表紙"></div>
+    <div class="menu-list">
+      <button class="menu-item" id="cvPhoto">
+        <span>写真・画像から選ぶ</span><small>表紙を撮った写真などが使えます</small>
+      </button>
+      <button class="menu-item" id="cvPage"><span>本の中のページから選ぶ</span></button>
+      <button class="menu-item" id="cvReset">
+        <span>1ページ目にもどす（自動）</span><small>${book.coverCustom ? 'いまは自分で設定した表紙です' : 'いまは自動（1ページ目）です'}</small>
+      </button>
+    </div>
+    <div class="modal-btns"><button class="btn ghost" data-x>閉じる</button></div>`);
+  const cleanup = () => { if (coverUrl) URL.revokeObjectURL(coverUrl); };
+  box.querySelector('[data-x]').onclick = () => { cleanup(); closeModal(); };
+  box.querySelector('#cvPhoto').onclick = () => {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = 'image/*';
+    input.onchange = async () => {
+      const f = input.files[0];
+      if (!f) return;
+      try {
+        book.cover = await makeCoverBlob(f);
+        book.coverCustom = true;
+        await Books.put(book);
+        cleanup();
+        closeModal();
+        await renderShelf();
+        toast('表紙を変えました');
+      } catch (e) {
+        console.error(e);
+        toast('この画像は使えませんでした');
+      }
+    };
+    input.click();
+  };
+  box.querySelector('#cvPage').onclick = () => { cleanup(); closeModal(); coverFromPageDialog(book); };
+  box.querySelector('#cvReset').onclick = async () => {
+    const imgRec = await Images.get(book.id, 1);
+    if (imgRec?.blob) {
+      book.cover = await makeCoverBlob(imgRec.blob);
+      book.coverCustom = false;
+      await Books.put(book);
+    }
+    cleanup();
+    closeModal();
+    await renderShelf();
+    toast('1ページ目の表紙にもどしました');
+  };
+}
+
+function coverFromPageDialog(book) {
+  let url = '';
+  const box = openModal(`
+    <h3 class="modal-title">ページから表紙を選ぶ</h3>
+    <div class="rot-stage"><img id="cpPreview" alt="プレビュー"></div>
+    <div class="rot-range" style="justify-content:center">
+      <input type="number" class="num-in" id="cpNo" min="1" max="${book.pageCount}" value="${book.lastPage || 1}">
+      <span>ページ</span>
+    </div>
+    <div class="modal-btns">
+      <button class="btn ghost" data-x>キャンセル</button>
+      <button class="btn prime" data-ok>このページを表紙にする</button>
+    </div>`, { sticky: true });
+  const noIn = box.querySelector('#cpNo');
+  const img = box.querySelector('#cpPreview');
+  const show = async () => {
+    const p = clamp(Math.floor(+noIn.value || 1), 1, book.pageCount);
+    const rec = await Pages.get(book.id, p);
+    if (url) URL.revokeObjectURL(url);
+    url = rec?.thumb ? URL.createObjectURL(rec.thumb) : '';
+    img.src = url;
+  };
+  show();
+  noIn.onchange = show;
+  box.querySelector('[data-x]').onclick = () => { if (url) URL.revokeObjectURL(url); closeModal(); };
+  box.querySelector('[data-ok]').onclick = async () => {
+    const p = clamp(Math.floor(+noIn.value || 1), 1, book.pageCount);
+    const rec = await Images.get(book.id, p);
+    if (!rec?.blob) { toast('このページの画像がありません'); return; }
+    book.cover = await makeCoverBlob(rec.blob);
+    book.coverCustom = true;
+    await Books.put(book);
+    if (url) URL.revokeObjectURL(url);
+    closeModal();
+    await renderShelf();
+    toast(`p.${p} を表紙にしました`);
   };
 }
 
@@ -719,7 +815,7 @@ async function openSettings() {
         <input type="file" id="stImportFile" accept="application/json,.json" hidden>
       </div>
     </div>
-    <p class="modal-note">じぶん教科書 v1.8 ・ 教科書 ${books.length}冊<br>データはこの端末の中だけに保存されます</p>
+    <p class="modal-note">じぶん教科書 v1.9 ・ 教科書 ${books.length}冊<br>データはこの端末の中だけに保存されます</p>
     <div class="modal-btns"><button class="btn prime" data-x>閉じる</button></div>`);
   box.querySelector('[data-x]').onclick = closeModal;
   box.querySelector('#stPersist')?.addEventListener('click', async () => {

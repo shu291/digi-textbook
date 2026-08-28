@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-ころころ電池ソーター ジェネレータ
-=================================
+ころころ電池ソーター ジェネレータ(引き出し式)
+===============================================
 単3・単4電池を「転がして入れるだけ」でサイズ差により自動仕分けし、
-別々のビンに整列させて溜めるケースの 3D モデル (STL) を生成する。
+それぞれの「引き出し」の中に整列させて溜めるケースの 3D モデル (STL) を生成する。
 Bambu Lab A1 mini (180×180×180mm) で印刷できるサイズ。
 
 仕分けの原理(長さの差を利用):
@@ -13,19 +13,21 @@ Bambu Lab A1 mini (180×180×180mm) で印刷できるサイズ。
     * 単3 (長さ 50.5mm) … 50.5 > 46 で両端が常に棚(レッジ)に乗り、
       さらにレーン側壁が斜め進入を防ぐため、幾何学的に絶対に落ちない
   → 速度・摩擦・勢いに依存しない確実な選別ができる。
-  落ちた単4は下段の坂で右端へ運ばれ、単4ビンへ。
-  単3はそのまま坂を転がりきって左端から単3ビンへ落ちる。
+  落ちた単4は下段の坂で右端へ運ばれ、天井の開口から単4引き出しの中へ。
+  単3は坂を転がりきって左端から単3引き出しの中へ落ちる。
 
 収納と取り出し:
-  各ビンは内幅=電池長+約2mm なので電池は自動的に平行に整列し、
-  床が中央の仕切りに向かって 5° 傾いているので仕切り際から積み重なって
-  溜まる(単3 約14本 / 単4 約22本)。前面の大きな取り出し窓の位置に
-  いちばん下の電池が常に転がってくるので、つまんで取るだけ。
+  各引き出しは内寸の奥行き=電池長+約2mm なので電池は自動的に平行に整列し、
+  内側の床が中央仕切り側へ 5° 傾いているので片側から積み重なって溜まる
+  (単3 約14本 / 単4 約22本)。前面の指穴に指をかけて手前に引き出すだけ。
+  指穴からは中の電池も見える。
 
 出力 (すべて標準ライブラリのみで生成):
-  battery_sorter.stl   バイナリ STL(ケース本体・原点は左手前下、単位 mm)
-  preview_iso1.svg     プレビュー画像
-  mesh.json            ビューア用メッシュ+パラメータ(コミット対象外)
+  battery_sorter_case.stl        ケース本体(仕分け機構つき)
+  battery_sorter_drawer_aa.stl   単3引き出し
+  battery_sorter_drawer_aaa.stl  単4引き出し
+  preview_iso1.svg               プレビュー画像(組み立て状態)
+  mesh.json                      ビューア用メッシュ+パラメータ(コミット対象外)
 
 使い方:
   python3 generate.py                  # 上記ファイルを生成
@@ -45,36 +47,36 @@ P = {
     "aa_d": 14.5, "aa_l": 50.5,      # 単3
     "aaa_d": 10.5, "aaa_l": 44.5,    # 単4
     # 外形 (A1 mini のビルドボリューム 180^3 に収まること)
-    "out_x": 178.0, "out_y": 59.5, "out_z": 122.0,
-    # 壁
-    "wall_x": 3.0,   # 左右壁厚
-    "wall_y": 3.5,   # 前後壁厚
-    "base": 3.0,     # 底板厚
-    # レーン内幅 (Y)
-    "ch_aa": 52.5,   # 単3レーン = 単3長 50.5 + 2.0
-    "ch_aaa": 46.0,  # 単4レーン = 単4長 44.5 + 1.5  (=スロット幅)
+    "out_x": 178.0, "out_y": 62.5, "out_z": 144.0,
+    # レーン内幅 (Y) — 引き出しの内寸と一致させる
+    "ch_aa": 52.5,   # 単3レーン = 単3長 50.5 + 2.0 (Y: 3〜55.5)
+    "ch_aaa": 46.0,  # 単4レーン = 単4長 44.5 + 1.5 (Y: 6.25〜52.25)
     # 仕分けスロット
     "slot_w": 46.0,           # Y方向の幅: 単4は必ず落ち、単3は絶対に落ちない
     "slot_x0": 52.0, "slot_x1": 102.0,   # X方向の開口 50mm (>単4全長)
-    # 上段(仕分け坂) — 右が高い。単3は左端 x=30 から単3ビンへ落下
-    "l0_x0": 30.0, "l0_x1": 175.0, "l0_z": 84.0, "l0_t": 4.0, "l0_deg": 10.0,
-    # 下段(単4搬送坂) — 左が高い。右端 x=148 から単4ビンへ落下
-    "l1_x0": 44.0, "l1_x1": 148.0, "l1_z0": 66.0, "l1_z1": 52.0, "l1_t": 4.0,
-    # ビン床の傾き(中央の仕切りに向かって下がる)
+    # 上段(仕分け坂) — 右が高い。単3は左端 x=30 から単3引き出しへ落下
+    "l0_x0": 30.0, "l0_x1": 175.0, "l0_z": 106.0, "l0_t": 4.0, "l0_deg": 10.0,
+    # 下段(単4搬送坂) — 左が高い。右端 x=148 から単4引き出しへ落下
+    "l1_x0": 44.0, "l1_x1": 148.0, "l1_z0": 88.0, "l1_z1": 74.0, "l1_t": 4.0,
+    # 引き出し床の傾き(中央の仕切り側へ下がる)
     "bay_deg": 5.0,
-    # ビン仕切り
-    "div_x0": 86.0, "div_x1": 92.0,
+    # 引き出しを収める区画: 仕切り x 86..92, 天井デッキ z 61..65
+    "div_x0": 86.0, "div_x1": 92.0, "deck_z0": 61.0, "deck_z1": 65.0,
+    # 引き出し (共通): 壁 2.5 / 各所クリアランス 0.5
+    #   単3: 外形 x 3.5..85.5, 内寸 x 6..83 × y 3..55.5,  床の低い側 x=83
+    #   単4: 外形 x 92.5..174.5, 内寸 x 95..172 × y 6.25..52.25, 低い側 x=95
+    "dr_z0": 3.0, "dr_z1": 59.0, "dr_face_z1": 60.5, "dr_floor": 6.5,
+    # デッキの落下開口
+    "hole_aa": (6.0, 30.0), "hole_aaa": (148.0, 172.0),
     # 投入口 (天板の開口)
     "mouth_x0": 130.0, "mouth_x1": 167.0,
-    # 前面の取り出し窓 (仕切りの両脇, z 8〜48)
-    "win_aa": (40.0, 86.0), "win_aaa": (92.0, 138.0),
-    # 収納数の目安(ビュー・表示用): 5+4+3+2 / 7+6+5+4
+    # 収納数の目安: 5+4+3+2 / 7+6+5+4
     "cap_aa": 14, "cap_aaa": 22,
 }
 
 T0 = math.tan(math.radians(P["l0_deg"]))            # 上段勾配
 T1 = (P["l1_z0"] - P["l1_z1"]) / (P["l1_x1"] - P["l1_x0"])  # 下段勾配
-TB = math.tan(math.radians(P["bay_deg"]))           # ビン床勾配
+TB = math.tan(math.radians(P["bay_deg"]))           # 引き出し床勾配
 
 def z0(x):   # 上段 坂の上面高さ
     return P["l0_z"] + (x - P["l0_x0"]) * T0
@@ -82,11 +84,11 @@ def z0(x):   # 上段 坂の上面高さ
 def z1(x):   # 下段 坂の上面高さ
     return P["l1_z0"] - (x - P["l1_x0"]) * T1
 
-def f_aa(x):   # 単3ビン床上面 (仕切り側=右が低い → 仕切り際に整列)
-    return 4.0 + (P["div_x0"] - x) * TB
+def f_aa(x):   # 単3引き出し 内側床の上面 (仕切り側 x=83 が低い)
+    return P["dr_floor"] + (83.0 - x) * TB
 
-def f_aaa(x):  # 単4ビン床上面 (仕切り側=左が低い → 仕切り際に整列)
-    return 4.0 + (x - P["div_x1"]) * TB
+def f_aaa(x):  # 単4引き出し 内側床の上面 (仕切り側 x=95 が低い)
+    return P["dr_floor"] + (x - 95.0) * TB
 
 # ------------------------------------------------------------ メッシュ生成系
 def sub(a, b):
@@ -150,103 +152,128 @@ def volume(tris):
         v += dot(a, cross(b, c))
     return v / 6.0
 
-# ------------------------------------------------------------ ケースの部品
+def translated(tris, dx, dy, dz):
+    return [tuple((p[0] + dx, p[1] + dy, p[2] + dz) for p in t) for t in tris]
+
+# ------------------------------------------------------------ ケース本体
 def build_case():
-    """[(グループ名, 色, [tri...]), ...] を返す。単位 mm。"""
+    """[(グループ名, 色, [tri...]), ...] を返す。単位 mm。組み立て座標。"""
     frame, aa, aaa = [], [], []
     dx0, dx1 = P["div_x0"], P["div_x1"]
+    dz0, dz1 = P["deck_z0"], P["deck_z1"]
 
     # ---- 外枠
-    # 底板はビン床(z=0から立ち上げ)と重ならないよう分割する
-    box(frame, 0, 178, 0, 3, 0, 3)               # 底板 前縁
-    box(frame, 0, 178, 56.5, 59.5, 0, 3)         # 底板 後縁
-    box(frame, 0, 2.5, 3, 56.5, 0, 3)            # 底板 左
-    box(frame, dx0 + 0.5, dx1 - 0.5, 3, 56.5, 0, 3)  # 底板 中央(仕切り下)
-    box(frame, 175.5, 178, 3, 56.5, 0, 3)        # 底板 右
-    box(frame, 0, 3, 0, 59.5, 2.5, 90)           # 左壁
-    box(frame, 175, 178, 0, 59.5, 2.5, 122)      # 右壁
-    box(frame, 0, 175.5, 56, 59.5, 2.5, 122)     # 背面壁
-    # 前面壁: 仕切りの両脇に大きな取り出し窓 (z 8〜48)。窓下の帯が電池止め
-    box(frame, 0, P["win_aa"][0], 0, 3.5, 2.5, 48)       # 左端〜単3窓
-    box(frame, P["win_aa"][0], P["win_aa"][1], 0, 3.5, 2.5, 8)   # 単3窓の下帯
-    box(frame, dx0, dx1, 0, 3.5, 2.5, 48)                # 中央柱(仕切り前)
-    box(frame, P["win_aaa"][0], P["win_aaa"][1], 0, 3.5, 2.5, 8) # 単4窓の下帯
-    box(frame, P["win_aaa"][1], 178, 0, 3.5, 2.5, 48)    # 単4窓〜右端
-    box(frame, 138, 143, 0, 3.7, 2.5, 118.5)     # 前面支柱(天板・両坂を支える)
+    box(frame, 0, 178, 0, 62.5, 0, 3)            # 底板 (引き出しはこの上を滑る)
+    box(frame, 0, 3, 0, 62.5, 2.5, 112)          # 左壁
+    box(frame, 175, 178, 0, 62.5, 2.5, 144)      # 右壁
+    box(frame, 0, 175.5, 59, 62.5, 2.5, 144)     # 背面壁
+    # 仕分け機構の背面はレーン後端 (y=55.5) と面一にする詰め壁
+    box(frame, 0, 175.5, 55.5, 59, dz1, 144)
+    box(frame, dx0, dx1, 0, 59, 2.5, dz1)        # 引き出しの間の仕切り
+    box(frame, dx0, dx1, 3, 55.5, dz1 - 0.5, 78.3)  # 仕切り上の柱(下段坂を支える)
+    # デッキ (引き出しの天井 z 61..65)。落下開口2箇所を残して張る
+    (ha0, ha1) = P["hole_aa"]; (hb0, hb1) = P["hole_aaa"]
+    box(frame, 2.5, ha0, 0, 59, dz0, dz1)        # 単3開口の左
+    box(frame, ha1, dx0 + 0.5, 0, 59, dz0, dz1)  # 単3開口の右〜仕切り
+    box(frame, ha0, ha1, 0, 3, dz0, dz1)         # 単3開口の前縁
+    box(frame, ha0, ha1, 55.5, 59, dz0, dz1)     # 単3開口の後縁
+    box(frame, dx1 - 0.5, hb0, 0, 59, dz0, dz1)  # 仕切り〜単4開口の左
+    box(frame, hb1, 175.5, 0, 59, dz0, dz1)      # 単4開口の右
+    box(frame, hb0, hb1, 0, 6.25, dz0, dz1)      # 単4開口の前縁
+    box(frame, hb0, hb1, 52.25, 59, dz0, dz1)    # 単4開口の後縁
+    box(frame, 138, 143, 0, 3.7, dz0, 140.5)     # 前面支柱(天板・両坂を支える)
     # 天板(投入口): 開口幅37mm<単4長44.5 なので
     # 縦向き(X方向寝かせ)では入らず、正しい向き(Y方向寝かせ)が強制される
-    box(frame, 108, P["mouth_x0"], 0, 56.5, 118, 122)
-    box(frame, P["mouth_x1"], 175.5, 0, 56.5, 118, 122)
-    box(frame, P["mouth_x0"], P["mouth_x1"], 0, 3.5, 118, 122)
-    # 開口の後ろ側は背面壁(z=122 まで)がそのまま縁になる
-    box(frame, dx0, dx1, 3.5, 56.5, 2.5, 56.5)   # ビン仕切り(下段坂の支えを兼ねる)
+    box(frame, 108, P["mouth_x0"], 0, 55.5, 140, 144)
+    box(frame, P["mouth_x1"], 175.5, 0, 55.5, 140, 144)
+    box(frame, P["mouth_x0"], P["mouth_x1"], 0, 3.5, 140, 144)
+    # 開口の後ろ側は詰め壁+背面壁 (z=144 まで) がそのまま縁になる
 
-    # ---- 単3の経路(上段仕分け坂 + 単3ビン床)
+    # ---- 単3の経路(上段仕分け坂)。レーン内幅 y 3..55.5
     sx0, sx1 = P["slot_x0"], P["slot_x1"]
-    hexp(aa, sx1, 175.5, 3.5, 56.5, z0(sx1) - 4, z0(sx1), z0(175.5) - 4, z0(175.5))
-    hexp(aa, P["l0_x0"], sx0, 3.5, 56.5, z0(P["l0_x0"]) - 4, z0(P["l0_x0"]),
+    hexp(aa, sx1, 175.5, 3, 56, z0(sx1) - 4, z0(sx1), z0(175.5) - 4, z0(175.5))
+    hexp(aa, P["l0_x0"], sx0, 3, 56, z0(P["l0_x0"]) - 4, z0(P["l0_x0"]),
          z0(sx0) - 4, z0(sx0))
     # スロット両側のレッジ(幅3.25) — 単3の両端はここに乗って渡る
-    hexp(aa, sx0, sx1, 3.5, 6.75, z0(sx0) - 4, z0(sx0), z0(sx1) - 4, z0(sx1))
-    hexp(aa, sx0, sx1, 52.75, 56.5, z0(sx0) - 4, z0(sx0), z0(sx1) - 4, z0(sx1))
-    # 単3ビン床(仕切りに向かって下がる)。底板を兼ねて z=0 から立ち上げる
-    hexp(aa, 2.5, dx0 + 0.5, 3.3, 56.5, 0, f_aa(2.5), 0, f_aa(dx0 + 0.5))
+    hexp(aa, sx0, sx1, 3, 6.25, z0(sx0) - 4, z0(sx0), z0(sx1) - 4, z0(sx1))
+    hexp(aa, sx0, sx1, 52.25, 56, z0(sx0) - 4, z0(sx0), z0(sx1) - 4, z0(sx1))
 
-    # ---- 単4の経路(下段搬送坂 + ガイド壁 + 単4ビン床)
+    # ---- 単4の経路(下段搬送坂 + ガイド壁)
     lx0, lx1 = P["l1_x0"], P["l1_x1"]
-    hexp(aaa, lx0, lx1, 3.5, 56.5, z1(lx0) - 4, z1(lx0), z1(lx1) - 4, z1(lx1))
-    box(aaa, lx0, lx0 + 3.5, 3.5, 56.5, 64, 77)   # 左端ストッパ(着地の跳ね返り止め)
-    # ガイド壁(内幅46)
-    for (ya, yb) in ((3.5, 6.75), (52.75, 56.5)):
+    hexp(aaa, lx0, lx1, 3, 56, z1(lx0) - 4, z1(lx0), z1(lx1) - 4, z1(lx1))
+    box(aaa, lx0, lx0 + 3.5, 3, 56, 86, 99)      # 左端ストッパ(着地の跳ね返り止め)
+    for (ya, yb) in ((3, 6.25), (52.25, 56)):
         # スロット直下: 上段の裏まで伸びてシュートを形成
         hexp(aaa, lx0, sx1, ya, yb, z1(lx0) - 1, z0(lx0) - 3.5,
              z1(sx1) - 1, z0(sx1) - 3.5)
         # 下段坂の上のガイド
         hexp(aaa, sx1, lx1, ya, yb, z1(sx1) - 1, z1(sx1) + 14,
              z1(lx1) - 1, z1(lx1) + 14)
-    # 単4ビンの側壁: 積み重なっても整列するよう天井(下段坂の裏)まで。
-    # ただし前側(y手前)は取り出し窓の範囲だけ低い柵(z=8)にして手が入るように
-    wa, wb = P["win_aaa"]
-    hexp(aaa, dx1, wb, 3.5, 6.75, f_aaa(dx1) - 1, 8, f_aaa(wb) - 1, 8)
-    hexp(aaa, wb, lx1, 3.5, 6.75, f_aaa(wb) - 1, z1(wb) - 3.5,
-         f_aaa(lx1) - 1, z1(lx1) - 3.5)
-    hexp(aaa, lx1, 175.5, 3.5, 6.75, f_aaa(lx1) - 1, 48.5,
-         f_aaa(175.5) - 1, 48.5)
-    hexp(aaa, dx1, lx1, 52.75, 56.5, f_aaa(dx1) - 1, z1(dx1) - 3.5,
-         f_aaa(lx1) - 1, z1(lx1) - 3.5)
-    hexp(aaa, lx1, 175.5, 52.75, 56.5, f_aaa(lx1) - 1, 48.5,
-         f_aaa(175.5) - 1, 48.5)
-    # 単4ビン床(仕切りに向かって下がる)。底板を兼ねて z=0 から立ち上げる
-    hexp(aaa, dx1 - 0.5, 175.5, 3.3, 56.5, 0, f_aaa(dx1 - 0.5), 0, f_aaa(175.5))
 
     return [("frame", "#8b93a1", frame),
             ("aa_path", "#e2c377", aa),
             ("aaa_path", "#9dc2ec", aaa)]
 
+# ------------------------------------------------------------ 引き出し
+def facade_with_hole(tris, x0, x1, hx0, hx1, y0, y1, zb, zt, hz0=26.0, hz1=40.0):
+    """指穴(hx0..hx1 × hz0..hz1)をあけた前板を4枚の箱で構成する。"""
+    box(tris, x0, x1, y0, y1, zb, hz0)
+    box(tris, x0, hx0, y0, y1, hz0, hz1)
+    box(tris, hx1, x1, y0, y1, hz0, hz1)
+    box(tris, x0, x1, y0, y1, hz1, zt)
+
+def build_drawer_aa():
+    """単3引き出し。外形 x 3.5..85.5 / y 0..58 / z 3..60.5 (組み立て座標)"""
+    t = []
+    facade_with_hole(t, 3.5, 85.5, 30, 58, 0, 3, 3, P["dr_face_z1"])  # 前板+指穴
+    box(t, 3.5, 6, 3, 58, 3, 59)          # 左壁
+    box(t, 83, 85.5, 3, 58, 3, 59)        # 右壁 (仕切り側: 電池はここに整列)
+    box(t, 6, 83, 55.5, 58, 3, 59)        # 後壁
+    box(t, 3.5, 85.5, 3, 58, 3, 5.5)      # 床
+    # 内側床: 仕切り側 (x=83) へ 5° 下がるくさび → 電池が寄って整列する
+    hexp(t, 6, 83, 3, 55.5, 5, f_aa(6), 5, f_aa(83))
+    return t
+
+def build_drawer_aaa():
+    """単4引き出し。外形 x 92.5..174.5 / y 0..55 / z 3..60.5 (組み立て座標)
+    内寸の奥行きを 46 にするため、前板の裏にスペーサ (y 3..6.25) を持つ。"""
+    t = []
+    facade_with_hole(t, 92.5, 174.5, 119, 147, 0, 3, 3, P["dr_face_z1"])
+    facade_with_hole(t, 95, 172, 119, 147, 3, 6.25, 5, 59)   # スペーサ(指穴も貫通)
+    box(t, 92.5, 95, 3, 55, 3, 59)        # 左壁 (仕切り側: 電池はここに整列)
+    box(t, 172, 174.5, 3, 55, 3, 59)      # 右壁
+    box(t, 95, 172, 52.25, 55, 3, 59)     # 後壁
+    box(t, 92.5, 174.5, 3, 55, 3, 5.5)    # 床
+    hexp(t, 95, 172, 6.25, 52.25, 5, f_aaa(95), 5, f_aaa(172))
+    return t
+
+def build_drawers():
+    return [("drawer_aa", "#caa14e", build_drawer_aa()),
+            ("drawer_aaa", "#79a8dc", build_drawer_aaa())]
+
 def build_preview_batteries():
     """プレビュー画像用に、経路の要所へ電池を配置(STLには含めない)。"""
     bat_aa, bat_aaa = [], []
-    yc = 29.75
+    yc = 29.25
     battery(bat_aa, 130, yc, z0(130) + 7.4, P["aa_d"], P["aa_l"])   # 坂を転がる単3
-    battery(bat_aaa, 80, yc, 78, P["aaa_d"], P["aaa_l"])            # 落下中の単4
-    # 仕切り際に積み重なった単3 (5+2)
-    for (x, lay) in [(78.75, 0), (64.25, 0), (49.75, 0), (35.25, 0), (20.75, 0),
-                     (71.5, 1), (57.0, 1)]:
+    battery(bat_aaa, 80, yc, 96, P["aaa_d"], P["aaa_l"])            # 落下中の単4
+    # 単3引き出しの中 (5+2)
+    for (x, lay) in [(75.75, 0), (61.25, 0), (46.75, 0), (32.25, 0), (17.75, 0),
+                     (68.5, 1), (54.0, 1)]:
         battery(bat_aa, x, yc, f_aa(x) + 7.25 + lay * 12.3, P["aa_d"], P["aa_l"])
-    # 仕切り際に積み重なった単4 (7+3)
+    # 単4引き出しの中 (7+3)
     for k in range(7):
-        x = 97.25 + k * 10.5
+        x = 100.25 + k * 10.5
         battery(bat_aaa, x, yc, f_aaa(x) + 5.25, P["aaa_d"], P["aaa_l"])
     for k in range(3):
-        x = 102.5 + k * 10.5
+        x = 105.5 + k * 10.5
         battery(bat_aaa, x, yc, f_aaa(x) + 5.25 + 9.1, P["aaa_d"], P["aaa_l"])
     return [("bat_aa", "#a8790f", bat_aa), ("bat_aaa", "#2660ad", bat_aaa)]
 
 # ------------------------------------------------------------ 出力
-def write_stl(path, groups):
-    tris = [t for (_, _, ts) in groups for t in ts]
+def write_stl(path, tris, note):
     with open(path, "wb") as f:
-        f.write(b"battery sorter case (AA/AAA), unit=mm, fits A1 mini".ljust(80, b" "))
+        f.write(note.encode()[:79].ljust(80, b" "))
         f.write(struct.pack("<I", len(tris)))
         for (a, b, c) in tris:
             n = cross(sub(b, a), sub(c, a))
@@ -299,7 +326,7 @@ def render_svg(path, groups, yaw_deg, pitch_deg, w=1080, h=780):
     cp, sp = math.cos(pa), math.sin(pa)
 
     def proj(p):
-        x, y, z = p[0] - 89, p[1] - 29.75, p[2] - 61
+        x, y, z = p[0] - 89, p[1] - 31, p[2] - 72
         x1 = x * cy_ - y * sy_
         y1 = x * sy_ + y * cy_
         up = y1 * sp + z * cp
@@ -363,20 +390,32 @@ def main():
     args = ap.parse_args()
 
     case = build_case()
-    for (name, _, ts) in case:
+    drawers = build_drawers()
+    for (name, _, ts) in case + drawers:
         v = volume(ts)
         assert v > 0, f"{name}: 法線が裏返っています (V={v:.0f})"
-        print(f"  {name:9s} {len(ts):4d} tris  {v / 1000:8.1f} cm^3")
+        print(f"  {name:10s} {len(ts):4d} tris  {v / 1000:8.1f} cm^3")
 
-    n = write_stl(os.path.join(HERE, "battery_sorter.stl"), case)
-    print(f"battery_sorter.stl  : {n} 三角形")
+    case_tris = [t for (_, _, ts) in case for t in ts]
+    n = write_stl(os.path.join(HERE, "battery_sorter_case.stl"), case_tris,
+                  "battery sorter case (AA/AAA), unit=mm, fits A1 mini")
+    print(f"battery_sorter_case.stl       : {n} 三角形")
+    # 引き出しは原点基準に移して単体の STL に
+    n = write_stl(os.path.join(HERE, "battery_sorter_drawer_aa.stl"),
+                  translated(drawers[0][2], -3.5, 0, -3),
+                  "AA drawer, unit=mm")
+    print(f"battery_sorter_drawer_aa.stl  : {n} 三角形")
+    n = write_stl(os.path.join(HERE, "battery_sorter_drawer_aaa.stl"),
+                  translated(drawers[1][2], -92.5, 0, -3),
+                  "AAA drawer, unit=mm")
+    print(f"battery_sorter_drawer_aaa.stl : {n} 三角形")
 
-    data = mesh_json(case)
+    data = mesh_json(case + drawers)
     with open(os.path.join(HERE, "mesh.json"), "w") as f:
         f.write(data)
 
-    preview = case + build_preview_batteries()
-    render_svg(os.path.join(HERE, "preview_iso1.svg"), preview, -28, 30)
+    preview = case + drawers + build_preview_batteries()
+    render_svg(os.path.join(HERE, "preview_iso1.svg"), preview, -28, 26)
     print("preview_iso1.svg")
 
     if args.inject:

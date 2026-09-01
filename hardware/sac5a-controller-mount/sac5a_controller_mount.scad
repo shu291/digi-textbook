@@ -1,25 +1,26 @@
 // =============================================================================
 //  定刻起床装置 個人簡易型 SAC-5A型  制御タイマー(型式 SUK-49) 用
-//  ベッドフレーム(43 x 43 角パイプ)引っ掛けホルダー
+//  ベッドフレーム(43 x 43 角パイプ)上置きホルダー
 // -----------------------------------------------------------------------------
 //  構造
-//    ・角パイプに「上からかぶせる」サドル(∩形)
-//    ・その外側面に、左右2枚のサイドプレートでぶら下がるポケット
+//    ・角パイプに上からかぶせる ∩ 形の脚（ねじ・金具なし）
+//    ・その真上のベースプレートにポケットを載せる
 //    ・制御タイマーは上から落とし込んで差し込む
+//
+//  「フレームより上」に置く利点
+//    ・本体背面が完全に空中に出るので、送風機プラグ・電源ケーブル・電池カバーの
+//      逃がしを考えなくてよい（角パイプが後ろに来ない）
+//    ・荷重が角パイプの真上に載るので片持ちにならず、曲げがほぼ発生しない
 //
 //  寸法根拠 (新光電業(株) SAC-5A型 取扱説明書「主な製品仕様」)
 //    制御タイマー(SUK-49)  高さ 120 × 幅 120 × 奥行 60 (mm) / 500 (g)
 //
-//  設計上の逃がし
-//    ・背面 : 送風機プラグ差込口 / 電源ケーブル差込口 / 電池カバー(ツマミ)
-//             → 背面はほぼ全開。さらにレール外面から STANDOFF だけ離す。
-//             → 落とし込み量 DROP により、差込口が角パイプの下端より下に来る
-//                ので、プラグを挿しても角パイプに当たらない。
-//    ・正面 : 下半分が操作ボタン11個 → リップは FRONT_LIP_H の低い縁のみ。
-//             上部の停止A/停止B・ディスプレイはサドルより上に出る。
+//  向き
+//    -Y 側 … 表示・操作ボタン面（寝ている人の側を向く）→ リップを低く
+//    +Y 側 … 背面（送風機プラグ / 電源ケーブル / 電池カバー）→ ケーブルは外へ抜ける
+//    逆向きにしたいときは FLIP_Y = true
 //
 //  座標系 : Z=0 レール上面 / Y=0 レール断面中心 / X = レール長手方向
-//           +Y = ベッドの外側(ポケット側) / -Y = ベッド側
 //  単位   : mm
 // =============================================================================
 
@@ -34,26 +35,24 @@ DEV_CLR = 1.5;   // 片側クリアランス(角R・印刷誤差ぶん)
 // ------------------------------------------------------- ベッドフレーム
 RAIL_W   = 43;   // 角パイプ 幅   (Y)
 RAIL_H   = 43;   // 角パイプ 高さ (Z) ※掛かりは LEG_DROP で決まる
-RAIL_CLR = 0.6;  // はめあいクリアランス(全幅)。きつい→0.8 / 緩い→0.4
+RAIL_CLR = 0.6;  // はめあいクリアランス(全幅)。きつい→0.8 / ゆるい→0.4
 
 // --------------------------------------------------------------- 肉厚等
-WALL     = 4;    // 一般肉厚(サイドプレート・リップ)
-FLOOR_T  = 5;    // ポケット床厚
-TOP_T    = 5;    // サドル天板厚
-LEG_DROP = 38;   // サドル脚の掛かり深さ(RAIL_H=43 に対して)
+WALL     = 4;    // 一般肉厚(側壁・リップ・脚)
+PLATE_T  = 10;   // ベースプレート厚(サドル天板 兼 ポケット床)
+LEG_DROP = 38;   // 脚の掛かり深さ(RAIL_H=43 に対して)
 
 // ------------------------------------------------------------- ポケット
-STANDOFF     = 12;  // サドル外面 → 本体背面 の隙間(コネクタ/ツマミ逃がし)
-DROP         = 100; // レール上面 → 本体底面 の落とし込み量
-SIDE_H_BACK  = 72;  // サイドプレート高さ(背面側)
-SIDE_H_FRONT = 28;  // サイドプレート高さ(正面側) ※テーパでつなぐ
-FRONT_LIP_H  = 10;  // 正面リップ高さ(操作ボタンを塞がない高さ)
-BACK_LIP_H   = 14;  // 背面リップ高さ(本体の位置決め)
+POCKET_Y     = 0;   // レール中心からのYオフセット(+で外側へずらす)
+SIDE_H_CABLE = 68;  // 側壁高さ : ケーブル側(+Y)。本体重心(60mm)より高くする
+SIDE_H_FACE  = 30;  // 側壁高さ : 表示側(-Y)
+LIP_FACE_H   = 10;  // 表示側リップ。**上げすぎると操作ボタンを塞ぐ**
+LIP_CABLE_H  = 15;  // ケーブル側リップ。差込口(底から約20mm)より低くする
 
 // ----------------------------------------------------------- クランプねじ
-//   既定では「かぶせるだけ」のシンプルな形。レール上を滑るのが気になる場合だけ
-//   CLAMP_SCREWS = true にすると、ベッド側の脚にねじボスが生える。
-CLAMP_SCREWS = false; // M4x25 を2本、ベッド側の脚から締めてガタ止め
+//   既定では「かぶせるだけ」のシンプルな形。停止ボタンを押したときのガタつきが
+//   気になる場合だけ CLAMP_SCREWS = true にすると、脚にねじボスが生える。
+CLAMP_SCREWS = false; // M4x25 を2本、表示側の脚から締めてガタ止め
 SCREW_D      = 3.4;   // M4 タッピング下穴
 BOSS_D       = 11;    // ねじボス外径
 BOSS_L       = 6;     // ねじボス突出量(45度テーパでサポートレス)
@@ -61,31 +60,28 @@ SCREW_X      = 30;    // ねじ位置(中心からの距離)
 SCREW_Z      = -20;   // ねじ高さ
 
 // ------------------------------------------------------------- オプション
-LIGHTEN      = false; // サドル天板の肉抜き窓(見た目より軽さを取るとき true)
-FLOOR_WINDOW = true; // 床の肉抜き / ゴミ抜き窓
-CABLE_NOTCH  = true; // 背面リップのケーブル逃がし(左右対称)
-PLACE_ON_BED = true; // true: 底面が Z=0 に来るよう移動(スライサ用)
+CABLE_NOTCH  = true;  // ケーブル側リップの逃がし切り欠き
+FLIP_Y       = false; // true で表示面の向きを反転
+PLACE_ON_BED = true;  // true: 底面が Z=0 に来るよう移動(スライサ用)
 
 // =============================================================================
 //  派生寸法
 // =============================================================================
-cav_w     = RAIL_W + RAIL_CLR;      // レールが通る空間の幅
-cav_y     = cav_w / 2;              // その内壁 Y
-out_y     = cav_y + WALL;           // サドル外面 Y
+cav_w     = RAIL_W + RAIL_CLR;   // レールが通る空間の幅
+cav_y     = cav_w / 2;           // その内壁 Y
+out_y     = cav_y + WALL;        // 脚の外面 Y
 
 pocket_w  = DEV_W + 2 * DEV_CLR;
 pocket_d  = DEV_D + 2 * DEV_CLR;
-px        = pocket_w / 2;           // ポケット内壁 X
-cx        = px + WALL;              // 外壁 X (= サイドプレート外面)
+px        = pocket_w / 2;        // ポケット内壁 X
+cx        = px + WALL;           // 外壁 X
 
-floor_top = -DROP;                  // 本体が載る面
-floor_bot = floor_top - FLOOR_T;
+dy0       = POCKET_Y - pocket_d / 2;  // 表示側(-Y) 内壁
+dy1       = POCKET_Y + pocket_d / 2;  // ケーブル側(+Y) 内壁
+py0       = dy0 - WALL;               // 表示側 外面
+py1       = dy1 + WALL;               // ケーブル側 外面
 
-back_y    = out_y + STANDOFF;       // 本体 背面の位置
-front_y   = back_y + pocket_d;      // 本体 正面の位置
-cf_y      = front_y + WALL;         // ポケット外面(正面側)
-
-saddle_x  = 2 * cx;                 // サドル長さ = サイドプレート外面まで
+plate_top = PLATE_T;             // 本体が載る面(レール上面から +10 mm)
 
 // 対角2点から直方体をつくる汎用モジュール
 module bx(x0, x1, y0, y1, z0, z1)
@@ -93,15 +89,11 @@ module bx(x0, x1, y0, y1, z0, z1)
         cube([abs(x1 - x0), abs(y1 - y0), abs(z1 - z0)]);
 
 // =============================================================================
-//  1. サドル : 角パイプに上からかぶせる ∩ 形
+//  1. 脚 : 角パイプに上からかぶせる ∩ 形
 // =============================================================================
-module saddle() {
-    // 天板
-    bx(-cx, cx, -out_y, out_y, 0, TOP_T);
-    // 脚(ベッド側 / 外側)
-    bx(-cx, cx, -out_y, -cav_y, -LEG_DROP, TOP_T);
-    bx(-cx, cx,  cav_y,  out_y, -LEG_DROP, TOP_T);
-    // クランプねじボス : 45度円錐でサポートレス
+module legs() {
+    for (sy = [-1, 1])
+        bx(-cx, cx, sy * cav_y, sy * out_y, -LEG_DROP, 1);
     if (CLAMP_SCREWS)
         for (sx = [-1, 1])
             translate([sx * SCREW_X, -out_y, SCREW_Z])
@@ -109,25 +101,16 @@ module saddle() {
                     cylinder(d1 = BOSS_D + 2 * BOSS_L, d2 = BOSS_D, h = BOSS_L);
 }
 
-// サドル天板の肉抜き窓
-//   脚(z < 0)は切らないので、天板を抜いても全体は一体のまま繋がる。
-module saddle_lighten() {
-    if (LIGHTEN)
-        for (sx = [-1, 1])
-            bx(sx * 15, sx * 47, -out_y - 1, out_y + 1, 0, TOP_T + 1);
-}
-
-// レールが入る空間(下方向に開口)+ 差し込みリード面取り + 天板内隅の逃がし
+// レールが入る空間(下方向に開口)+ 差し込みリード面取り + 天面内隅の逃がし
 module rail_cavity() {
-    len = saddle_x + 20;
+    len = 2 * cx + 20;
     bx(-len / 2, len / 2, -cav_y, cav_y, -(LEG_DROP + 40), 0);
-    // 下端の面取り(はめやすく)
+    // 脚の下端 3 mm を広げて、かぶせやすくする(内側へ約40度で立ち上がるので自立)
     hull() {
-        bx(-len / 2, len / 2, -cav_y, cav_y, -LEG_DROP, -LEG_DROP + 0.01);
-        bx(-len / 2, len / 2, -(cav_y + 2.5), cav_y + 2.5,
-           -LEG_DROP - 3, -LEG_DROP - 2.99);
+        bx(-len / 2, len / 2, -cav_y, cav_y, -LEG_DROP + 3, -LEG_DROP + 3.01);
+        bx(-len / 2, len / 2, -(cav_y + 2.5), cav_y + 2.5, -LEG_DROP, -LEG_DROP + 0.01);
     }
-    // 天板内隅の逃がし(積層のダレとパイプ角Rを吸収)
+    // 天面内隅の逃がし(積層のダレとパイプ角Rを吸収)
     for (sy = [-1, 1])
         translate([-len / 2, sy * cav_y, 0])
             rotate([0, 90, 0])
@@ -143,77 +126,65 @@ module clamp_holes() {
 }
 
 // =============================================================================
-//  2. サイドプレート : サドル → スタンドオフ → ポケット側壁 を一枚でつなぐ
-//     Y-Z 平面の板なので、片持ち曲げに対して最も効率のよい向きになる
+//  2. ベースプレート : 脚の外寸からポケットの外寸へ 45 度未満で広がる
+//     （サポートなしで造形できる角度。サドル天板とポケット床を兼ねる）
 // =============================================================================
-SIDE_PROFILE = [
-    [cav_y,  TOP_T],                      // 背面上端(サドル天板の高さ)
-    [back_y, TOP_T],                      // スタンドオフぶん張り出し
-    [back_y, floor_top + SIDE_H_BACK],    // 側壁 背面側の高さ
-    [cf_y,   floor_top + SIDE_H_FRONT],   // 正面へ向かってテーパ
-    [cf_y,   floor_bot],                  // 正面下端
-    [cav_y,  floor_bot],                  // 背面下端
-];
-
-module side_plate() {
-    translate([px, 0, 0])
-        rotate([90, 0, 90])            // (x,y,z) -> (z,x,y) : YZ平面の板をX方向に押し出す
-            linear_extrude(WALL)
-                polygon(SIDE_PROFILE);
-}
-
-module side_plates() {
-    side_plate();
-    mirror([1, 0, 0]) side_plate();
+module base_plate() {
+    hull() {
+        bx(-cx, cx, -out_y, out_y, 0, 0.01);
+        bx(-cx, cx, py0, py1, PLATE_T - 0.01, PLATE_T);
+    }
 }
 
 // =============================================================================
-//  3. ポケット : 床 + 前後リップ (背面中央と正面上半分は開放のまま)
+//  3. ポケット : テーパ側壁 + 前後リップ（正面も背面も開放のまま）
 // =============================================================================
-module cradle() {
-    // 床(サドル直下まで伸ばしてサイドプレートと一体化)
-    bx(-cx, cx, cav_y, cf_y, floor_bot, floor_top);
-    // 正面リップ(操作ボタンを避ける低さ)
-    bx(-cx, cx, front_y, cf_y, floor_bot, floor_top + FRONT_LIP_H);
-    // 背面リップ(本体の位置決め)
-    bx(-cx, cx, back_y - WALL, back_y, floor_bot, floor_top + BACK_LIP_H);
+module side_walls() {
+    for (sx = [-1, 1])
+        hull() {
+            bx(sx * px, sx * cx, py0, py0 + 20,
+               plate_top - 0.01, plate_top + SIDE_H_FACE);
+            bx(sx * px, sx * cx, py1 - 20, py1,
+               plate_top - 0.01, plate_top + SIDE_H_CABLE);
+        }
 }
 
-module floor_cut() {
-    if (FLOOR_WINDOW)
-        bx(-40, 40, back_y + 14, front_y - 14, floor_bot - 1, floor_top + 1);
+module lips() {
+    bx(-cx, cx, py0, dy0, plate_top - 0.01, plate_top + LIP_FACE_H);
+    bx(-cx, cx, dy1, py1, plate_top - 0.01, plate_top + LIP_CABLE_H);
 }
 
-// 背面リップのケーブル逃がし(左右対称なので取り付け向きを選ばない)
+// ケーブル側リップの逃がし(左右対称)
 module cable_cut() {
     if (CABLE_NOTCH)
         for (sx = [-1, 1])
-            bx(sx * 16, sx * 52, back_y - WALL - 1, back_y + 1,
-               floor_top - 0.01, floor_top + BACK_LIP_H + 1);
+            bx(sx * 16, sx * 52, dy1 - 1, py1 + 1,
+               plate_top, plate_top + LIP_CABLE_H + 1);
 }
 
 // =============================================================================
 //  組み立て
 // =============================================================================
 module holder() {
-    difference() {
-        union() {
-            saddle();
-            side_plates();
-            cradle();
+    mirror([0, FLIP_Y ? 1 : 0, 0])
+        difference() {
+            union() {
+                legs();
+                base_plate();
+                side_walls();
+                lips();
+            }
+            rail_cavity();
+            clamp_holes();
+            cable_cut();
         }
-        rail_cavity();
-        saddle_lighten();
-        clamp_holes();
-        floor_cut();
-        cable_cut();
-    }
 }
 
 // 参考表示 : 制御タイマー本体(STL には含まれない)
 module device_ghost() {
-    %translate([-DEV_W / 2, back_y, floor_top])
-        cube([DEV_W, DEV_D, DEV_H]);
+    mirror([0, FLIP_Y ? 1 : 0, 0])
+        %translate([-DEV_W / 2, dy0 + DEV_CLR, plate_top])
+            cube([DEV_W, DEV_D, DEV_H]);
 }
 
 // 参考表示 : ベッドフレーム角パイプ
@@ -223,6 +194,6 @@ module rail_ghost() {
 }
 
 if (PLACE_ON_BED)
-    translate([0, 0, -floor_bot]) holder();
+    translate([0, 0, LEG_DROP]) holder();
 else
     holder();

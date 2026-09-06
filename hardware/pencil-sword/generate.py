@@ -46,10 +46,18 @@ PENCIL_AF = 7.8          # 六角鉛筆の対辺距離 (JIS S 6005 は 7.6〜8.0
 PENCIL_LEN = 175.0       # 新品の鉛筆の長さ（部品の形には影響しない。図の見た目だけ）
 
 # --- はめあい ---
-BORE_AF = 8.45           # 穴の対辺距離。ゆるい＝下げる / きつい＝上げる
-RIB_AF = 7.95            # 抜け止めリブの頂点での実効対辺距離
+# 穴とリブは鉛筆の対辺からの「足し算」で決める。細い鉛筆でも
+#   python3 generate.py --pencil-af 7.0
+# の一発で全部品がついてくる（外形は変わらず、穴が縮んで肉が厚くなるだけ）。
+SLIDE_GAP = 0.65         # 穴 = 鉛筆 + これ。するする通るためのすきま
+RIB_GAP = 0.15           # リブ頂点 = 鉛筆 + これ。刷ると穴は小さめに出るので軽い圧入になる
+BORE_AF = PENCIL_AF + SLIDE_GAP
+RIB_AF = PENCIL_AF + RIB_GAP
 RIB_COUNT = 6            # リブの本数（六角の「面」の真ん中を押す＝6本）
 RIB_HALF_ANG = 6.0       # リブの角度半幅 [deg]
+
+# --- 対辺を測るゲージ（06）が試す穴の対辺 ---
+GAUGE_STEPS = (7.10, 7.35, 7.60, 7.85, 8.10, 8.35, 8.60)
 
 # --- 各部品の長さ ---
 POMMEL_LEN = 20.0
@@ -370,6 +378,26 @@ def part_pommel():
     return mesh.arrays()
 
 
+def part_bore_gauge():
+    """鉛筆の対辺距離そのものを測るゲージ。輪っか 7 個が一列に並ぶ。
+
+    リブは付けない（＝素の穴）。「するっと入る、いちばん小さい穴」を探すと、
+    その穴の対辺が「鉛筆の対辺 ＋ このプリンタの縮み」になる。
+    高さで見分ける: 6mm が 7.10、以降 2mm 高くなるごとに 0.25 ずつ大きい穴。
+    """
+    verts, faces = [], []
+    n_off = 0
+    for i, af in enumerate(GAUGE_STEPS):
+        h = 6.0 + i * 2.0
+        rim = superellipse_radii(af / 2.0 + 2.4, af / 2.0 + 2.1, 4.0)
+        hexr = hex_radii(af)
+        V, F = make_part([(0.0, rim), (h, rim)], [(0.0, hexr), (h, hexr)])
+        verts.append(V + np.array([(i - (len(GAUGE_STEPS) - 1) / 2.0) * 16.0, 0.0, 0.0]))
+        faces.append(F + n_off)
+        n_off += len(V)
+    return np.concatenate(verts), np.concatenate(faces)
+
+
 def part_fit_rings():
     """はめあい確認用の輪っか 3 個。高さで見分ける（低い＝きつい）。
 
@@ -554,9 +582,20 @@ def shifted(part, dz):
 
 
 def main():
-    ap = argparse.ArgumentParser()
-    ap.add_argument("--no-preview", action="store_true")
+    global PENCIL_AF, BORE_AF, RIB_AF, RIB_DEPTH
+
+    ap = argparse.ArgumentParser(description="六角鉛筆ソードの STL を作る")
+    ap.add_argument("--no-preview", action="store_true", help="STL だけ出して PNG は描かない")
+    ap.add_argument("--pencil-af", type=float, metavar="MM",
+                    help=f"鉛筆の対辺距離 [mm]（既定 {PENCIL_AF}）。"
+                         "穴とリブがこれに追従する")
     args = ap.parse_args()
+
+    if args.pencil_af is not None:
+        PENCIL_AF = args.pencil_af
+        BORE_AF = PENCIL_AF + SLIDE_GAP
+        RIB_AF = PENCIL_AF + RIB_GAP
+        RIB_DEPTH = max(0.0, (BORE_AF - RIB_AF) / 2.0)
 
     os.makedirs(STL_DIR, exist_ok=True)
     os.makedirs(PNG_DIR, exist_ok=True)
@@ -587,6 +626,12 @@ def main():
     check_closed(F, "fit rings")
     write_stl(os.path.join(STL_DIR, "05_fit_test_rings.stl"), V, F)
     print(f"  {'05_fit_test_rings':<16} {'試し':<3}  はめあい確認用 3 個         "
+          f"{len(F):6d} 面  中実体積 {volume(V, F) / 1000.0:5.2f} cm3")
+
+    V, F = part_bore_gauge()
+    check_closed(F, "bore gauge")
+    write_stl(os.path.join(STL_DIR, "06_bore_gauge.stl"), V, F)
+    print(f"  {'06_bore_gauge':<16} {'測り':<3}  対辺 {GAUGE_STEPS[0]}〜{GAUGE_STEPS[-1]}mm の 7 個 "
           f"{len(F):6d} 面  中実体積 {volume(V, F) / 1000.0:5.2f} cm3")
     print(f"\n  4 部品あわせて {total_cc:.1f} cm3（中実）／ 充填 20% ならフィラメント約 "
           f"{total_cc * 0.45 * 1.24:.0f} g 前後")

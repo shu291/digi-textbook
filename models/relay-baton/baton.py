@@ -311,6 +311,17 @@ def build(bands, nth, m, hole, threads=()):
 
 # ------------------------------------------------------------ 仕様の組み立て
 
+def joint_geometry(p):
+    """継手まわりの寸法。(沈みこみ seat, 面取り cham, メス入口 entry)"""
+    rout = p["od"] / 2.0
+    depth = p["thread"]["depth"] if p.get("thread") else 0.0
+    sk_minor = rout - p["socket_wall"] - depth
+    slope = (rout - (sk_minor - p["fit"])) / p["shoulder"]
+    entry = sk_minor + depth
+    seat = p["lip"] / slope
+    return seat, max(0.0, (rout - entry) / slope - seat), entry
+
+
 def make_bands(p, kind):
     """(段のリスト, ねじのリスト) を返す。
        kind: 'one'（1本もの） / 'a'（オス側） / 'b'（メス側）"""
@@ -328,8 +339,6 @@ def make_bands(p, kind):
         return tube(p["length"], p["grip"], p["grip"]), []
 
     sh, sp, sk = p["shoulder"], p["spigot_len"], p["socket_len"]
-    la = (p["length"] - sh - sp) / 2.0    # Aの見える長さ。A・Bの造形高さがそろう
-    lb = p["length"] - la
     t = p.get("thread")
     depth = t["depth"] if t else 0.0
     pitch = t["pitch"] if t else 0.0
@@ -338,6 +347,18 @@ def make_bands(p, kind):
     sk_minor = rout - p["socket_wall"] - depth
     male_minor = sk_minor - p["fit"]      # オスの谷。すきまのぶんだけ細い
     sp_in = male_minor - p["joint_wall"]
+
+    # オス側の段差はテーパ（急だと空中に刷ることになるので寝かせてある）。
+    # メス側の入口に同じ傾きの面取りをつけて、テーパ同士で突きあたるようにする。
+    # そうしないと端面がテーパの途中で止まり、継ぎ目に溝ができて全長も伸びる。
+    slope = (rout - male_minor) / sh      # 1mmあたり半径がどれだけ細くなるか
+    entry = sk_minor + depth              # メスの入口の内半径（ねじ山の頂まで開く）
+    seat = p["lip"] / slope               # 突きあたるまでに沈みこむ長さ
+    cham = max(0.0, (rout - entry) / slope - seat)   # メス側の面取りの高さ
+
+    # A・Bの造形高さがそろい、かつ合わせて length になるように分ける
+    la = (p["length"] - seat - sh - sp) / 2.0
+    lb = p["length"] - la - seat
 
     def joint(total, rin_, rout_):
         """ねじを刻む区間。ピッチの1/10ごとに輪切りにして山の形を出す"""
@@ -355,16 +376,18 @@ def make_bands(p, kind):
         bands += joint(sp, sp_in, male_minor)                        # おねじ
         return bands, spec("male", la + sh, la + sh + sp, male_minor, 1)
     if kind == "b":
-        bands = joint(sk, sk_minor, rout)                            # めねじ
+        bands = [dict(h=cham, solid=True, rows=4, rout=rout, rout1=rout,
+                      rin=rout - p["lip"], rin1=entry)]              # 入口の面取り
+        bands += joint(sk, sk_minor, rout)                           # めねじ
         bands.append(dict(h=sh, solid=True, rin=sk_minor, rout=rout,  # 内径をもどす
                           rin1=rin, rout1=rout))
-        bands += tube(lb - sk - sh, solid_last=p["grip"])
-        return bands, spec("female", 0.0, sk, sk_minor, 0)
+        bands += tube(lb - cham - sk - sh, solid_last=p["grip"])
+        return bands, spec("female", cham, cham + sk, sk_minor, 0)
     raise ValueError(kind)
 
 
 JOINT = dict(shoulder=3.0, spigot_len=24.0, socket_len=27.0,
-             socket_wall=1.6, joint_wall=1.6, fit=0.25,
+             socket_wall=1.6, joint_wall=1.6, fit=0.25, lip=0.8,
              thread=dict(pitch=4.0, depth=1.0, lead=2.0))
 
 PRESETS = {
@@ -517,11 +540,14 @@ def main():
              p["od"], p["wall"], p["length"], seg))
     print("  丸さ: 面のへこみ %.3f mm（%.1f°きざみ）"
           % (p["od"] / 2.0 * (1 - math.cos(math.pi / seg)), 360.0 / seg))
+    seat, cham, _ = joint_geometry(p)
     if p["thread"]:
         print("  継手: ねじ ピッチ%.1fmm 山の高さ%.1fmm（右ねじ）／かみ合い長さ%.0fmm"
               % (p["thread"]["pitch"], p["thread"]["depth"], p["spigot_len"]))
     else:
         print("  継手: 差しこみのみ／長さ%.0fmm" % p["spigot_len"])
+    print("        メス側の入口に%.2fmmの面取り。テーパ同士が突きあたって"
+          "%.2fmm沈み、外面は段差なくつながる" % (cham, seat))
     print("  参考: 同寸法の穴なし円筒 = %.2f cm3 / PLA約 %.1f g"
           % (solid_tube_volume(p, p["length"]) / 1000.0,
              solid_tube_volume(p, p["length"]) / 1000.0 * PLA_DENSITY))
@@ -546,6 +572,11 @@ def main():
         if kind in ("a", "b"):
             total_split += vol
     if total_split:
+        ha = sum(b["h"] for b in shapes["a"][0])
+        hb = sum(b["h"] for b in shapes["b"][0])
+        overlap = p["spigot_len"] + p["shoulder"] - seat   # Bの中に隠れる長さ
+        print("  %-28s A %.1f ＋ B %.1f − 差しこみ %.1f = %.1f mm"
+              % ("組み立て後の全長", ha, hb, overlap, ha + hb - overlap))
         print("  %-28s %.2f cm3 / PLA約 %.1f g"
               % ("分割版 合計", total_split / 1000.0,
                  total_split / 1000.0 * PLA_DENSITY))

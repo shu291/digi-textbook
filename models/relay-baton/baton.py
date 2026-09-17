@@ -118,19 +118,20 @@ def _lerp_p(p, q, t):
     return (p[0] + (q[0] - p[0]) * t, p[1] + (q[1] - p[1]) * t)
 
 
-def _subdiv_tri(tri, m, out):
-    """三角形を m^2 個の小三角形に分割（辺の分割は隣接セルと必ず一致）"""
-    a, b, c = tri
-    pts = {}
-    for u in range(m + 1):
-        for w in range(m + 1 - u):
-            pts[(u, w)] = (a[0] + (b[0] - a[0]) * u / m + (c[0] - a[0]) * w / m,
-                           a[1] + (b[1] - a[1]) * u / m + (c[1] - a[1]) * w / m)
-    for w in range(m):
-        for u in range(m - w):
-            out.append((pts[(u, w)], pts[(u + 1, w)], pts[(u, w + 1)]))
-            if u + w < m - 1:
-                out.append((pts[(u + 1, w)], pts[(u + 1, w + 1)], pts[(u, w + 1)]))
+def _ring_faces(nth, m, z0, z1, rows, out):
+    """穴のない段を、縦にそろった四角い帯で埋める。
+
+    三角形で敷きつめると輪が段ごとにずれて面がうねるので、平らな筒の部分は
+    同じ角度の頂点が縦に並ぶ四角形で作る。角度の刻みは 2 パラメータ単位
+    ＝三角形セルの辺の分割と同じなので、ラティスの段ともぴったり合う。
+    """
+    for r in range(rows):
+        za = z0 + (z1 - z0) * r / rows
+        zb = z0 + (z1 - z0) * (r + 1) / rows
+        for k in range(nth * m):
+            a, b = 2 * k, 2 * k + 2
+            out.append(((a, za), (b, za), (b, zb)))
+            out.append(((a, za), (b, zb), (a, zb)))
 
 
 def _frame_faces(tri, inner, m, out):
@@ -233,6 +234,9 @@ def build(bands, nth, m, hole, threads=()):
     for j, bd in enumerate(bands):
         base0, base1 = (j % 2) * m, ((j + 1) % 2) * m
         z0, z1 = j * m, (j + 1) * m
+        if bd["solid"]:
+            _ring_faces(nth, m, z0, z1, bd.get("rows", 1), faces)
+            continue
         sx = math.pi * (lev[z0][1] + lev[z0][2]) / T      # θ1単位の実寸
         sy = bd["h"] / m                                   # z1単位の実寸
         cells = []
@@ -247,15 +251,12 @@ def build(bands, nth, m, hole, threads=()):
                           (base1 + i * 2 * m + m, z0)))
         for cell in cells:
             stats["cells"] += 1
-            if bd["solid"]:
-                _subdiv_tri(cell, m, faces)
-            else:
-                stats["frames"] += 1
-                ic = _incenter(cell, sx, sy)
-                inner = tuple((ic[0] + (p[0] - ic[0]) * hole,
-                               ic[1] + (p[1] - ic[1]) * hole) for p in cell)
-                _frame_faces(cell, inner, m, faces)
-                stats["rib"] = 2.0 * (1.0 - hole) * _inradius(cell, sx, sy)
+            stats["frames"] += 1
+            ic = _incenter(cell, sx, sy)
+            inner = tuple((ic[0] + (p[0] - ic[0]) * hole,
+                           ic[1] + (p[1] - ic[1]) * hole) for p in cell)
+            _frame_faces(cell, inner, m, faces)
+            stats["rib"] = 2.0 * (1.0 - hole) * _inradius(cell, sx, sy)
 
     # --- 展開図を半径方向に押し出して立体にする -------------------------
     mesh = Mesh()
@@ -339,11 +340,9 @@ def make_bands(p, kind):
     sp_in = male_minor - p["joint_wall"]
 
     def joint(total, rin_, rout_):
-        """ねじを刻む区間。ピッチの1/12ごとに輪切りができる細かさで段に割る"""
-        step = pitch / 12.0 * p["m"] if pitch else total
-        n = max(1, int(round(total / step)))
-        return [dict(rin=rin_, rout=rout_, h=total / n, solid=True)
-                for _ in range(n)]
+        """ねじを刻む区間。ピッチの1/10ごとに輪切りにして山の形を出す"""
+        rows = max(1, int(round(total / (pitch / 10.0)))) if pitch else 1
+        return [dict(rin=rin_, rout=rout_, h=total, solid=True, rows=rows)]
 
     def spec(mode, z0, z1, minor, side):
         return [dict(side=side, mode=mode, z0=z0, z1=z1, minor=minor,
@@ -370,13 +369,13 @@ JOINT = dict(shoulder=3.0, spigot_len=24.0, socket_len=27.0,
 
 PRESETS = {
     # 軽量版：三角ラティスで材料を最小化する
-    "light": dict(od=38.5, wall=1.4, length=280.0, bands=16, nth=6, m=6,
+    "light": dict(od=38.5, wall=1.4, length=280.0, bands=16, nth=6, m=8,
                   hole=0.75, grip=1, plain=False, **JOINT),
     # 筒そのまま版：穴なし。薄肉で材料を減らす（公式の50g以上も満たす）
-    "plain": dict(od=38.5, wall=1.2, length=280.0, bands=16, nth=6, m=6,
+    "plain": dict(od=38.5, wall=1.2, length=280.0, bands=16, nth=6, m=12,
                   hole=0.75, grip=1, plain=True, **JOINT),
     # 公式規格版：50g以上・周囲12〜13cmを満たすラティス版
-    "legal": dict(od=39.5, wall=2.2, length=285.0, bands=16, nth=6, m=6,
+    "legal": dict(od=39.5, wall=2.2, length=285.0, bands=16, nth=6, m=8,
                   hole=0.66, grip=1, plain=False, **JOINT),
 }
 
@@ -425,7 +424,8 @@ def main():
         ap.add_argument("--" + key, type=float, help=help_)
     ap.add_argument("--nth", type=int, help="円周方向のセル数")
     ap.add_argument("--bands", type=int, help="長さ方向の段数(偶数)")
-    ap.add_argument("--m", type=int, help="1辺の分割数（大きいほど滑らか）")
+    ap.add_argument("--m", type=int,
+                    help="1辺の分割数（偶数）。円周は nth×m 分割になる")
     ap.add_argument("--only", choices=["one", "split"], help="片方だけ出力")
     ap.add_argument("--plain", action="store_true",
                     help="穴をあけずただの筒にする")
@@ -448,14 +448,19 @@ def main():
         p["plain"] = False
     if args.no_thread:
         p["thread"] = None
+    if p["m"] % 2:
+        raise SystemExit("--m は偶数にしてください（リングとラティスの頂点をそろえるため）")
     if p["bands"] % 2:
         raise SystemExit("--bands は偶数にしてください（分割版で半分にするため）")
     p["band_h"] = p["length"] / p["bands"]
 
     os.makedirs(args.outdir, exist_ok=True)
-    print("プリセット: %s（%s）  外径%.1fmm 肉厚%.1fmm 全長%.0fmm 段高%.1fmm"
+    seg = p["nth"] * p["m"]
+    print("プリセット: %s（%s）  外径%.1fmm 肉厚%.1fmm 全長%.0fmm 円周%d分割"
           % (args.preset, "筒そのまま" if p["plain"] else "三角ラティス",
-             p["od"], p["wall"], p["length"], p["band_h"]))
+             p["od"], p["wall"], p["length"], seg))
+    print("  丸さ: 面のへこみ %.3f mm（%.1f°きざみ）"
+          % (p["od"] / 2.0 * (1 - math.cos(math.pi / seg)), 360.0 / seg))
     if p["thread"]:
         print("  継手: ねじ ピッチ%.1fmm 山の高さ%.1fmm（右ねじ）／かみ合い長さ%.0fmm"
               % (p["thread"]["pitch"], p["thread"]["depth"], p["spigot_len"]))

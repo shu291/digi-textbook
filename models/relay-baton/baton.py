@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""リレーバトン 3Dモデル生成スクリプト（材料最小・三角ラティス構造）
+"""リレーバトン 3Dモデル生成スクリプト（筒そのまま版・三角ラティス版）
 
-外径・長さは陸上競技規則（長さ 28〜30cm／周囲 12〜13cm）に合わせつつ、
-筒の壁を「三角形の枠（ラティス）」に置きかえて材料を最小化する。
+外径・長さは陸上競技規則（長さ 28〜30cm／周囲 12〜13cm／重さ 50g以上）に合わせる。
+薄肉の筒そのままか、壁を「三角形の枠（ラティス）」に置きかえてさらに軽くするかを選べる。
+差しこみ継手つきで2分割すれば、造形高さ180mm（A1 mini）のプリンタでも刷れる。
 
 つくりかた
 ----------
@@ -25,9 +26,10 @@
 
 使いかた
 --------
-    python3 baton.py                 # 既定（軽量版）を stl/ に出力
-    python3 baton.py --preset legal  # 公式規格重量（50g以上）版
-    python3 baton.py --hole 0.8      # 穴を大きくしてさらに軽く
+    python3 baton.py                  # 既定（軽量ラティス版）を stl/ に出力
+    python3 baton.py --preset plain   # 穴なしのただの筒（薄肉）
+    python3 baton.py --preset legal   # 公式規格重量（50g以上）版
+    python3 baton.py --hole 0.8       # 穴を大きくしてさらに軽く
 """
 
 import argparse
@@ -275,15 +277,27 @@ def build(bands, nth, m, hole):
 
 # ------------------------------------------------------------ 仕様の組み立て
 
+def balanced_split(p):
+    """分割位置（A側に入れる段数）。A・Bの造形高さが最もそろう位置を選ぶ"""
+    extra = p["shoulder"] + p["spigot_bands"] * p["spigot_h"]
+    best, best_h = 1, None
+    for s in range(1, p["bands"]):
+        h = max(s * p["band_h"] + extra, (p["bands"] - s) * p["band_h"])
+        if best_h is None or h < best_h:
+            best, best_h = s, h
+    return best
+
+
 def make_bands(p, kind):
-    """kind: 'one'（1本もの） / 'a'（分割・下側＋差しこみ） / 'b'（分割・上側）"""
+    """kind: 'one'（1本もの） / 'a'（分割・差しこみ側） / 'b'（分割・受け側）"""
     rout = p["od"] / 2.0
     rin = rout - p["wall"]
     h = p["band_h"]
     full = dict(rin=rin, rout=rout)
+    plain = p.get("plain", False)      # True なら穴をあけずただの筒にする
 
     def band(solid, height=h, **kw):
-        d = dict(full, h=height, solid=solid)
+        d = dict(full, h=height, solid=bool(solid) or plain)
         d.update(kw)
         return d
 
@@ -293,42 +307,51 @@ def make_bands(p, kind):
 
     # 分割版：オス側の差しこみ部（スピゴット）の半径
     sp_out = rin - p["fit"]                 # 相手の内径より fit だけ細く
-    sp_in = sp_out - p["wall"]
-    n = p["bands"] // 2
+    sp_in = sp_out - p["joint_wall"]        # 継手は折れないよう内側に厚く
+    s = p.get("split_at") or balanced_split(p)
     if kind == "a":
-        bands = [band(j < p["grip"]) for j in range(n)]
+        bands = [band(j < p["grip"]) for j in range(s)]
         bands.append(dict(h=p["shoulder"], solid=True,        # 段差（テーパ）
                           rin=rin, rout=rout, rin1=sp_in, rout1=sp_out))
         for _ in range(p["spigot_bands"]):                    # 差しこみ部
             bands.append(dict(h=p["spigot_h"], solid=True, rin=sp_in, rout=sp_out))
         return bands
     if kind == "b":
-        # 継手側（下）は受け口として肉厚のまま、上端は握り部
+        n = p["bands"] - s
+        # 継手側（下）は受け口として穴なし、上端は握り部
         return [band(j < p["socket"] or j >= n - p["grip"]) for j in range(n)]
     raise ValueError(kind)
 
 
 PRESETS = {
-    # 軽量版：材料を最優先で減らす
+    # 軽量版：三角ラティスで材料を最小化する
     "light": dict(od=38.5, wall=1.4, length=280.0, bands=16, nth=6, m=6,
-                  hole=0.75, grip=1, socket=2, fit=0.25,
-                  shoulder=3.0, spigot_bands=2, spigot_h=16.0),
-    # 公式規格版：50g以上・周囲12〜13cmを満たす
+                  hole=0.75, grip=1, socket=2, fit=0.25, plain=False,
+                  shoulder=3.0, spigot_bands=2, spigot_h=16.0, joint_wall=2.0),
+    # 筒そのまま版：穴なし。薄肉で材料を減らす（公式の50g以上も満たす）
+    "plain": dict(od=38.5, wall=1.2, length=280.0, bands=16, nth=6, m=6,
+                  hole=0.75, grip=1, socket=2, fit=0.25, plain=True,
+                  shoulder=3.0, spigot_bands=2, spigot_h=16.0, joint_wall=2.0),
+    # 公式規格版：50g以上・周囲12〜13cmを満たすラティス版
     "legal": dict(od=39.5, wall=2.2, length=285.0, bands=16, nth=6, m=6,
-                  hole=0.66, grip=1, socket=2, fit=0.3,
-                  shoulder=3.0, spigot_bands=2, spigot_h=16.0),
+                  hole=0.66, grip=1, socket=2, fit=0.3, plain=False,
+                  shoulder=3.0, spigot_bands=2, spigot_h=16.0, joint_wall=2.6),
 }
 
 
-def report(name, mesh, stats, p, path):
+def report(name, mesh, stats, p, path, max_h=None):
     ok, msg = mesh.check_closed()
     vol = mesh.volume()
     (x0, y0, z0), (x1, y1, z1) = mesh.bbox()
     grams = vol / 1000.0 * PLA_DENSITY
     fil = vol / (math.pi * (FILAMENT_DIA / 2.0) ** 2) / 1000.0
     print("  %-28s %s" % (name, msg))
-    print("    %-26s %.1f x %.1f x %.1f mm" % ("外形寸法",
-                                               x1 - x0, y1 - y0, z1 - z0))
+    fit = ""
+    if max_h:
+        fit = "  → 造形高さ%.0fmm に%s" % (max_h,
+                                          "収まる" if z1 - z0 <= max_h else "収まらない")
+    print("    %-26s %.1f x %.1f x %.1f mm%s" % ("外形寸法",
+                                                 x1 - x0, y1 - y0, z1 - z0, fit))
     print("    %-26s %.2f cm3 / PLA約 %.1f g / フィラメント約 %.1f m"
           % ("材料", vol / 1000.0, grams, fil))
     if stats["frames"]:
@@ -361,19 +384,35 @@ def main():
     ap.add_argument("--bands", type=int, help="長さ方向の段数(偶数)")
     ap.add_argument("--m", type=int, help="1辺の分割数（大きいほど滑らか）")
     ap.add_argument("--only", choices=["one", "split"], help="片方だけ出力")
+    ap.add_argument("--plain", action="store_true",
+                    help="穴をあけずただの筒にする")
+    ap.add_argument("--lattice", action="store_true",
+                    help="三角ラティスにする（--plain の打ち消し）")
+    ap.add_argument("--split-at", type=int,
+                    help="分割位置（A側の段数）。既定はA・Bの高さがそろう位置")
+    ap.add_argument("--max-height", type=float, default=180.0,
+                    help="プリンタの造形高さ[mm]（既定180＝A1 mini）")
+    ap.add_argument("--name", default="relay-baton", help="出力ファイル名の頭")
     args = ap.parse_args()
 
     p = dict(PRESETS[args.preset])
     for key in ("od", "wall", "length", "hole", "nth", "bands", "m"):
         if getattr(args, key) is not None:
             p[key] = getattr(args, key)
+    if args.plain:
+        p["plain"] = True
+    if args.lattice:
+        p["plain"] = False
+    if args.split_at is not None:
+        p["split_at"] = args.split_at
     if p["bands"] % 2:
         raise SystemExit("--bands は偶数にしてください（分割版で半分にするため）")
     p["band_h"] = p["length"] / p["bands"]
 
     os.makedirs(args.outdir, exist_ok=True)
-    print("プリセット: %s  外径%.1fmm 肉厚%.1fmm 全長%.0fmm 段高%.1fmm"
-          % (args.preset, p["od"], p["wall"], p["length"], p["band_h"]))
+    print("プリセット: %s（%s）  外径%.1fmm 肉厚%.1fmm 全長%.0fmm 段高%.1fmm"
+          % (args.preset, "筒そのまま" if p["plain"] else "三角ラティス",
+             p["od"], p["wall"], p["length"], p["band_h"]))
     print("  参考: 同寸法の穴なし円筒 = %.2f cm3 / PLA約 %.1f g"
           % (solid_tube_volume(p, p["length"]) / 1000.0,
              solid_tube_volume(p, p["length"]) / 1000.0 * PLA_DENSITY))
@@ -381,17 +420,17 @@ def main():
     jobs = []
     if args.only != "split":
         jobs.append(("one", "1本もの（全長%.0fmm）" % p["length"],
-                     "relay-baton-1piece.stl"))
+                     args.name + "-1piece.stl"))
     if args.only != "one":
-        jobs.append(("a", "分割A（差しこみ側）", "relay-baton-split-a.stl"))
-        jobs.append(("b", "分割B（受け側）", "relay-baton-split-b.stl"))
+        jobs.append(("a", "分割A（差しこみ側）", args.name + "-a.stl"))
+        jobs.append(("b", "分割B（受け側）", args.name + "-b.stl"))
 
     total_split = 0.0
     for kind, label, fname in jobs:
         mesh, stats = build(make_bands(p, kind), p["nth"], p["m"], p["hole"])
         path = os.path.join(args.outdir, fname)
         mesh.write_stl(path)
-        vol = report(label, mesh, stats, p, path)
+        vol = report(label, mesh, stats, p, path, args.max_height)
         if kind in ("a", "b"):
             total_split += vol
     if total_split:

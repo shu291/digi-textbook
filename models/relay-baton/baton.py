@@ -30,6 +30,7 @@
     python3 baton.py --preset plain   # 穴なしのただの筒（薄肉）
     python3 baton.py --preset legal   # 公式規格重量（50g以上）版
     python3 baton.py --hole 0.8       # 穴を大きくしてさらに軽く
+    python3 baton.py --no-thread      # ねじなしの差しこみ継手にする
 """
 
 import argparse
@@ -168,15 +169,44 @@ def _inradius(tri, sx, sy):
     return 2.0 * area / per
 
 
+# ------------------------------------------------------------------ ねじ
+
+def _thread_profile(ph):
+    """台形ねじの山の断面（0=谷 1=山）。斜面は立てて刷って45°未満なのでサポート不要"""
+    ph %= 1.0
+    if ph < 0.30:
+        return ph / 0.30
+    if ph < 0.50:
+        return 1.0
+    if ph < 0.80:
+        return (0.80 - ph) / 0.30
+    return 0.0
+
+
+def thread_radius(t, z, th):
+    """ねじ部の半径。オスは山を足し、メスは同じ山のぶんだけ内側を削る（右ねじ）"""
+    prof = _thread_profile((z - t["z0"]) / t["pitch"] - th / (2.0 * math.pi))
+    lead = t.get("lead", 0.0)
+    if t["mode"] == "male":
+        # 先端と根元は山を消して、入れはじめが引っかからないようにする
+        f = 1.0 if lead <= 0 else max(0.0, min(1.0, min(z - t["z0"],
+                                                        t["z1"] - z) / lead))
+        return t["minor"] + t["depth"] * prof * f
+    # メスは入口を山の高さぶん広げておく（オスの山がそのまま入る）
+    f = 1.0 if lead <= 0 else max(0.0, min(1.0, (z - t["z0"]) / lead))
+    return t["minor"] + t["depth"] * (1.0 - f * (1.0 - prof))
+
+
 # ------------------------------------------------------------ 本体生成
 
-def build(bands, nth, m, hole):
+def build(bands, nth, m, hole, threads=()):
     """bands: 帯（三角形1段分）のリスト。各要素は
          h        段の高さ [mm]
          rin,rout 段の下端の内半径・外半径 [mm]
          rin1,rout1 段の上端（省略時は下端と同じ）
          solid    True なら穴をあけない
        nth : 円周方向のセル数 / m : 1辺の分割数 / hole : 穴の相似比(0-1)
+       threads : ねじの指定（thread_radius 参照）。押し出し半径をθにも依存させる
     """
     T = nth * 2 * m                      # 円周方向の全パラメータ単位
     NL = len(bands) * m                  # 高さ方向のレベル数
@@ -247,6 +277,9 @@ def build(bands, nth, m, hole):
         zz = z0 + (z1 - z0) * t
         r = (ro0 + (ro1 - ro0) * t) if side else (ri0 + (ri1 - ri0) * t)
         th = tu * (2.0 * math.pi / T)
+        for tr in threads:                       # ねじ部だけ半径を差しかえる
+            if tr["side"] == side and tr["z0"] - 1e-9 <= zz <= tr["z1"] + 1e-9:
+                r = thread_radius(tr, zz, th)
         idx = len(mesh.verts)
         mesh.verts.append((r * math.cos(th), r * math.sin(th), zz))
         cache[key] = idx
@@ -277,65 +310,74 @@ def build(bands, nth, m, hole):
 
 # ------------------------------------------------------------ 仕様の組み立て
 
-def balanced_split(p):
-    """分割位置（A側に入れる段数）。A・Bの造形高さが最もそろう位置を選ぶ"""
-    extra = p["shoulder"] + p["spigot_bands"] * p["spigot_h"]
-    best, best_h = 1, None
-    for s in range(1, p["bands"]):
-        h = max(s * p["band_h"] + extra, (p["bands"] - s) * p["band_h"])
-        if best_h is None or h < best_h:
-            best, best_h = s, h
-    return best
-
-
 def make_bands(p, kind):
-    """kind: 'one'（1本もの） / 'a'（分割・差しこみ側） / 'b'（分割・受け側）"""
+    """(段のリスト, ねじのリスト) を返す。
+       kind: 'one'（1本もの） / 'a'（オス側） / 'b'（メス側）"""
     rout = p["od"] / 2.0
     rin = rout - p["wall"]
-    h = p["band_h"]
-    full = dict(rin=rin, rout=rout)
     plain = p.get("plain", False)      # True なら穴をあけずただの筒にする
 
-    def band(solid, height=h, **kw):
-        d = dict(full, h=height, solid=bool(solid) or plain)
-        d.update(kw)
-        return d
+    def tube(total, solid_first=0, solid_last=0):
+        n = max(1, int(round(total / p["band_h"])))
+        return [dict(rin=rin, rout=rout, h=total / n,
+                     solid=plain or j < solid_first or j >= n - solid_last)
+                for j in range(n)]
 
     if kind == "one":
-        n = p["bands"]
-        return [band(j < p["grip"] or j >= n - p["grip"]) for j in range(n)]
+        return tube(p["length"], p["grip"], p["grip"]), []
 
-    # 分割版：オス側の差しこみ部（スピゴット）の半径
-    sp_out = rin - p["fit"]                 # 相手の内径より fit だけ細く
-    sp_in = sp_out - p["joint_wall"]        # 継手は折れないよう内側に厚く
-    s = p.get("split_at") or balanced_split(p)
+    sh, sp, sk = p["shoulder"], p["spigot_len"], p["socket_len"]
+    la = (p["length"] - sh - sp) / 2.0    # Aの見える長さ。A・Bの造形高さがそろう
+    lb = p["length"] - la
+    t = p.get("thread")
+    depth = t["depth"] if t else 0.0
+    pitch = t["pitch"] if t else 0.0
+
+    # メスの谷（一番細いところ）を、溝の底でも socket_wall だけ肉が残る位置に置く
+    sk_minor = rout - p["socket_wall"] - depth
+    male_minor = sk_minor - p["fit"]      # オスの谷。すきまのぶんだけ細い
+    sp_in = male_minor - p["joint_wall"]
+
+    def joint(total, rin_, rout_):
+        """ねじを刻む区間。ピッチの1/12ごとに輪切りができる細かさで段に割る"""
+        step = pitch / 12.0 * p["m"] if pitch else total
+        n = max(1, int(round(total / step)))
+        return [dict(rin=rin_, rout=rout_, h=total / n, solid=True)
+                for _ in range(n)]
+
+    def spec(mode, z0, z1, minor, side):
+        return [dict(side=side, mode=mode, z0=z0, z1=z1, minor=minor,
+                     depth=depth, pitch=pitch, lead=t["lead"])] if t else []
+
     if kind == "a":
-        bands = [band(j < p["grip"]) for j in range(s)]
-        bands.append(dict(h=p["shoulder"], solid=True,        # 段差（テーパ）
-                          rin=rin, rout=rout, rin1=sp_in, rout1=sp_out))
-        for _ in range(p["spigot_bands"]):                    # 差しこみ部
-            bands.append(dict(h=p["spigot_h"], solid=True, rin=sp_in, rout=sp_out))
-        return bands
+        bands = tube(la, solid_first=p["grip"])
+        bands.append(dict(h=sh, solid=True, rin=rin, rout=rout,      # 段差
+                          rin1=sp_in, rout1=male_minor))
+        bands += joint(sp, sp_in, male_minor)                        # おねじ
+        return bands, spec("male", la + sh, la + sh + sp, male_minor, 1)
     if kind == "b":
-        n = p["bands"] - s
-        # 継手側（下）は受け口として穴なし、上端は握り部
-        return [band(j < p["socket"] or j >= n - p["grip"]) for j in range(n)]
+        bands = joint(sk, sk_minor, rout)                            # めねじ
+        bands.append(dict(h=sh, solid=True, rin=sk_minor, rout=rout,  # 内径をもどす
+                          rin1=rin, rout1=rout))
+        bands += tube(lb - sk - sh, solid_last=p["grip"])
+        return bands, spec("female", 0.0, sk, sk_minor, 0)
     raise ValueError(kind)
 
+
+JOINT = dict(shoulder=3.0, spigot_len=24.0, socket_len=27.0,
+             socket_wall=1.6, joint_wall=1.6, fit=0.25,
+             thread=dict(pitch=4.0, depth=1.0, lead=2.0))
 
 PRESETS = {
     # 軽量版：三角ラティスで材料を最小化する
     "light": dict(od=38.5, wall=1.4, length=280.0, bands=16, nth=6, m=6,
-                  hole=0.75, grip=1, socket=2, fit=0.25, plain=False,
-                  shoulder=3.0, spigot_bands=2, spigot_h=16.0, joint_wall=2.0),
+                  hole=0.75, grip=1, plain=False, **JOINT),
     # 筒そのまま版：穴なし。薄肉で材料を減らす（公式の50g以上も満たす）
     "plain": dict(od=38.5, wall=1.2, length=280.0, bands=16, nth=6, m=6,
-                  hole=0.75, grip=1, socket=2, fit=0.25, plain=True,
-                  shoulder=3.0, spigot_bands=2, spigot_h=16.0, joint_wall=2.0),
+                  hole=0.75, grip=1, plain=True, **JOINT),
     # 公式規格版：50g以上・周囲12〜13cmを満たすラティス版
     "legal": dict(od=39.5, wall=2.2, length=285.0, bands=16, nth=6, m=6,
-                  hole=0.66, grip=1, socket=2, fit=0.3, plain=False,
-                  shoulder=3.0, spigot_bands=2, spigot_h=16.0, joint_wall=2.6),
+                  hole=0.66, grip=1, plain=False, **JOINT),
 }
 
 
@@ -378,7 +420,8 @@ def main():
     ap.add_argument("--outdir", default=os.path.join(
         os.path.dirname(os.path.abspath(__file__)), "stl"))
     for key, help_ in (("od", "外径[mm]"), ("wall", "肉厚[mm]"),
-                       ("length", "全長[mm]"), ("hole", "穴の相似比0-1")):
+                       ("length", "全長[mm]"), ("hole", "穴の相似比0-1"),
+                       ("fit", "ねじのすきま[mm]。きつければ増やす")):
         ap.add_argument("--" + key, type=float, help=help_)
     ap.add_argument("--nth", type=int, help="円周方向のセル数")
     ap.add_argument("--bands", type=int, help="長さ方向の段数(偶数)")
@@ -388,23 +431,23 @@ def main():
                     help="穴をあけずただの筒にする")
     ap.add_argument("--lattice", action="store_true",
                     help="三角ラティスにする（--plain の打ち消し）")
-    ap.add_argument("--split-at", type=int,
-                    help="分割位置（A側の段数）。既定はA・Bの高さがそろう位置")
+    ap.add_argument("--no-thread", action="store_true",
+                    help="ねじをやめて、ただ差しこむだけの継手にする")
     ap.add_argument("--max-height", type=float, default=180.0,
                     help="プリンタの造形高さ[mm]（既定180＝A1 mini）")
     ap.add_argument("--name", default="relay-baton", help="出力ファイル名の頭")
     args = ap.parse_args()
 
     p = dict(PRESETS[args.preset])
-    for key in ("od", "wall", "length", "hole", "nth", "bands", "m"):
+    for key in ("od", "wall", "length", "hole", "fit", "nth", "bands", "m"):
         if getattr(args, key) is not None:
             p[key] = getattr(args, key)
     if args.plain:
         p["plain"] = True
     if args.lattice:
         p["plain"] = False
-    if args.split_at is not None:
-        p["split_at"] = args.split_at
+    if args.no_thread:
+        p["thread"] = None
     if p["bands"] % 2:
         raise SystemExit("--bands は偶数にしてください（分割版で半分にするため）")
     p["band_h"] = p["length"] / p["bands"]
@@ -413,6 +456,11 @@ def main():
     print("プリセット: %s（%s）  外径%.1fmm 肉厚%.1fmm 全長%.0fmm 段高%.1fmm"
           % (args.preset, "筒そのまま" if p["plain"] else "三角ラティス",
              p["od"], p["wall"], p["length"], p["band_h"]))
+    if p["thread"]:
+        print("  継手: ねじ ピッチ%.1fmm 山の高さ%.1fmm（右ねじ）／かみ合い長さ%.0fmm"
+              % (p["thread"]["pitch"], p["thread"]["depth"], p["spigot_len"]))
+    else:
+        print("  継手: 差しこみのみ／長さ%.0fmm" % p["spigot_len"])
     print("  参考: 同寸法の穴なし円筒 = %.2f cm3 / PLA約 %.1f g"
           % (solid_tube_volume(p, p["length"]) / 1000.0,
              solid_tube_volume(p, p["length"]) / 1000.0 * PLA_DENSITY))
@@ -427,7 +475,8 @@ def main():
 
     total_split = 0.0
     for kind, label, fname in jobs:
-        mesh, stats = build(make_bands(p, kind), p["nth"], p["m"], p["hole"])
+        bands, threads = make_bands(p, kind)
+        mesh, stats = build(bands, p["nth"], p["m"], p["hole"], threads)
         path = os.path.join(args.outdir, fname)
         mesh.write_stl(path)
         vol = report(label, mesh, stats, p, path, args.max_height)

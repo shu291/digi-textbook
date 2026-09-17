@@ -372,7 +372,7 @@ PRESETS = {
     "light": dict(od=38.5, wall=1.4, length=280.0, bands=16, nth=6, m=8,
                   hole=0.75, grip=1, plain=False, **JOINT),
     # 筒そのまま版：穴なし。薄肉で材料を減らす（公式の50g以上も満たす）
-    "plain": dict(od=38.5, wall=1.2, length=280.0, bands=16, nth=6, m=12,
+    "plain": dict(od=38.5, wall=1.0, length=280.0, bands=16, nth=6, m=12,
                   hole=0.75, grip=1, plain=True, **JOINT),
     # 公式規格版：50g以上・周囲12〜13cmを満たすラティス版
     "legal": dict(od=39.5, wall=2.2, length=285.0, bands=16, nth=6, m=8,
@@ -407,6 +407,58 @@ def report(name, mesh, stats, p, path, max_h=None):
     return vol
 
 
+# ------------------------------------------------------- 印刷時間の見積り
+
+def layer_areas(bands, threads, layer, hole=0.0):
+    """層ごとの断面積[mm^2]。ねじ部は山の平均の高さでならし、
+       ラティスの段は開口率のぶんだけ減らす（穴まわりの細かい動きは見ていない）"""
+    edges, z = [], 0.0
+    for bd in bands:
+        edges.append((z, z + bd["h"], bd))
+        z += bd["h"]
+    out, zz = [], layer / 2.0
+    while zz < z:
+        for (a, b, bd) in edges:
+            if a <= zz < b:
+                t = (zz - a) / (b - a)
+                ri = bd["rin"] + (bd.get("rin1", bd["rin"]) - bd["rin"]) * t
+                ro = bd["rout"] + (bd.get("rout1", bd["rout"]) - bd["rout"]) * t
+                break
+        for tr in threads:
+            if tr["z0"] <= zz <= tr["z1"]:
+                mean = tr["minor"] + 0.5 * tr["depth"]      # 山の平均の高さ
+                if tr["mode"] == "male":
+                    ro = mean
+                else:
+                    ri = mean
+        area = math.pi * (ro * ro - ri * ri)
+        if not bd["solid"]:
+            area *= 1.0 - hole * hole
+        out.append(area)
+        zz += layer
+    return out
+
+
+def job_time(parts, layer, width, speed, overhead=1.0, min_layer=4.0,
+             warmup=180.0):
+    """同じ皿に parts を並べたときの印刷時間[秒]のおおよそ。
+
+    インフィル0%なので、層の押し出し長さ ＝ 断面積 ÷ 線幅。
+    冷却のための最短層時間と、層替え・移動のぶんを足す。
+    """
+    t = warmup
+    for i in range(max(len(a) for a in parts)):
+        area = sum(a[i] for a in parts if i < len(a))
+        n = sum(1 for a in parts if i < len(a))
+        t += max(min_layer, area / width / speed + overhead * n)
+    return t
+
+
+def hhmm(sec):
+    return "%d時間%02d分" % (sec // 3600, (sec % 3600) // 60) if sec >= 3600 \
+        else "%d分" % (sec // 60)
+
+
 def solid_tube_volume(p, length):
     rout = p["od"] / 2.0
     rin = rout - p["wall"]
@@ -436,6 +488,10 @@ def main():
     ap.add_argument("--max-height", type=float, default=180.0,
                     help="プリンタの造形高さ[mm]（既定180＝A1 mini）")
     ap.add_argument("--name", default="relay-baton", help="出力ファイル名の頭")
+    ap.add_argument("--speed", type=float, default=150.0,
+                    help="印刷時間の見積りに使う速度[mm/s]")
+    ap.add_argument("--width", type=float, default=0.42,
+                    help="印刷時間の見積りに使う線幅[mm]")
     args = ap.parse_args()
 
     p = dict(PRESETS[args.preset])
@@ -478,9 +534,11 @@ def main():
         jobs.append(("a", "分割A（差しこみ側）", args.name + "-a.stl"))
         jobs.append(("b", "分割B（受け側）", args.name + "-b.stl"))
 
+    shapes = {}
     total_split = 0.0
     for kind, label, fname in jobs:
         bands, threads = make_bands(p, kind)
+        shapes[kind] = (bands, threads)
         mesh, stats = build(bands, p["nth"], p["m"], p["hole"], threads)
         path = os.path.join(args.outdir, fname)
         mesh.write_stl(path)
@@ -491,6 +549,16 @@ def main():
         print("  %-28s %.2f cm3 / PLA約 %.1f g"
               % ("分割版 合計", total_split / 1000.0,
                  total_split / 1000.0 * PLA_DENSITY))
+        print("  印刷時間の目安（線幅%.2fmm・%.0fmm/s・インフィル0%%・あくまで概算）"
+              % (args.width, args.speed))
+        for layer in (0.20, 0.24, 0.28):
+            a, b = (layer_areas(*shapes[k], layer=layer, hole=p["hole"])
+                    for k in ("a", "b"))
+            print("    層厚%.2fmm : A %s ／ B %s ／ 2本を1皿で %s"
+                  % (layer,
+                     hhmm(job_time([a], layer, args.width, args.speed)),
+                     hhmm(job_time([b], layer, args.width, args.speed)),
+                     hhmm(job_time([a, b], layer, args.width, args.speed))))
 
 
 if __name__ == "__main__":

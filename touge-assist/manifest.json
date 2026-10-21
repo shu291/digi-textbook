@@ -1,0 +1,26 @@
+{
+  "manifest_version": 3,
+  "name": "部長と峠 操作アシスト",
+  "version": "1.0.0",
+  "description": "部長と峠(oichikonnyaku.com/touge)の操作を細かくできるようにします。ゲームパッド対応・キーボードの段階操作・マウス操作・スロー再生。",
+  "permissions": ["storage"],
+  "action": {
+    "default_title": "部長と峠 操作アシスト",
+    "default_popup": "popup.html",
+    "default_icon": { "16": "icon16.png", "48": "icon48.png", "128": "icon128.png" }
+  },
+  "icons": { "16": "icon16.png", "48": "icon48.png", "128": "icon128.png" },
+  "content_scripts": [
+    {
+      "matches": ["https://oichikonnyaku.com/touge/*", "https://www.oichikonnyaku.com/touge/*"],
+      "js": ["content.js"],
+      "run_at": "document_start"
+    },
+    {
+      "matches": ["https://oichikonnyaku.com/touge/*", "https://www.oichikonnyaku.com/touge/*"],
+      "js": ["page.js"],
+      "run_at": "document_start",
+      "world": "MAIN"
+    }
+  ]
+}

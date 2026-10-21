@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<title>部長と峠 操作アシスト</title>
+<style>
+  :root{color-scheme:light dark;--bg:#f6f4f0;--fg:#2b2622;--mut:#7a716a;--ac:#d8442f;--line:#0002}
+  @media (prefers-color-scheme:dark){:root{--bg:#2b2622;--fg:#f1ede8;--mut:#a79d94;--line:#fff3}}
+  body{margin:0;width:340px;background:var(--bg);color:var(--fg);font:13px/1.5 system-ui,sans-serif}
+  h1{font-size:14px;margin:0;padding:12px 14px;border-bottom:1px solid var(--line)}
+  section{padding:10px 14px;border-bottom:1px solid var(--line)}
+  h2{font-size:12px;color:var(--mut);margin:0 0 6px}
+  label.row{display:flex;align-items:center;justify-content:space-between;gap:10px;margin:5px 0}
+  label.row span.v{min-width:42px;text-align:right;color:var(--mut);font-variant-numeric:tabular-nums}
+  input[type=range]{flex:1;accent-color:var(--ac)}
+  input[type=checkbox]{accent-color:var(--ac);width:16px;height:16px}
+  p.note{margin:6px 0 0;color:var(--mut);font-size:11px}
+  button{margin:10px 14px;padding:6px 12px;border:1px solid var(--line);border-radius:6px;background:transparent;color:var(--fg);cursor:pointer}
+</style>
+</head>
+<body>
+<h1>部長と峠 操作アシスト</h1>
+<div id="root"></div>
+<section>
+  <h2>走りを見るとき</h2>
+  <p class="note">「全国トップの走りを見る」の最中は、いつでも使えます。Space＝一時停止、<b>,</b> ＝遅く、<b>.</b> ＝速く（画面右下のボタンでも操作できます）。</p>
+</section>
+<button id="reset" type="button">初期設定に戻す</button>
+<script src="popup.js"></script>
+</body>
+</html>

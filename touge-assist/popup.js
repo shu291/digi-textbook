@@ -2,10 +2,18 @@ const DEFAULTS = {
   kbOn: true, kbRise: 0.35, kbFall: 0.12, kbFine: 0.45, kbBrakeRise: 0.3,
   padOn: true, padDead: 0.12, padCurve: 1.6,
   mouseOn: false, mouseRange: 0.22,
+  steerGain: 1, brakeGain: 1, practiceOn: false,
   hudOn: true, warnKmh: 0,
 };
 
 const GROUPS = [
+  { title: '感度（キー・ゲームパッド・マウス共通）', items: [
+    ['steerGain', 'ハンドルの感度', 'range', 0.3, 2, 0.05, (v) => '×' + v],
+    ['brakeGain', 'ブレーキの強さ', 'range', 0.3, 2, 0.05, (v) => '×' + v],
+  ], note: '小さくすると鈍く（細かく）、大きくすると少しの入力で大きく切れます。1＝標準。' },
+  { title: '練習スロー', items: [
+    ['practiceOn', '自分で走るときもスローを使う', 'check'],
+  ], note: 'オンにすると画面右下にスローのボタンが出ます（Space＝一時停止、, ＝遅く、. ＝速く）。スローを使うと、そのページを開き直すまで、ランキングへの送信と自己ベストの保存は行われません。' },
   { title: 'キーボード（← → ↓ / A D S）', items: [
     ['kbOn', '段階操作を使う', 'check'],
     ['kbRise', '全開になるまで', 'range', 0.1, 1, 0.05, (v) => v + '秒'],

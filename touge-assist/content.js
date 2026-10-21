@@ -17,6 +17,9 @@
     padCurve: 1.6,      // 大きいほど、スティックの中央付近が細かく効く
     mouseOn: false,
     mouseRange: 0.22,   // 画面幅の何割ぶんマウスを動かすと全開か
+    steerGain: 1,       // ハンドル全体の感度（小さいほど鈍く・細かく）
+    brakeGain: 1,       // ブレーキ全体の強さ
+    practiceOn: false,  // 自分で走るときの練習スロー（使うと記録は残らない）
     hudOn: true,
     warnKmh: 0,         // 0＝鳴らさない
   };
@@ -41,7 +44,7 @@
     const down = e.type === 'keydown';
     if (e.key === 'Shift') keys.shift = down;
     if (isTyping(e.target)) return;
-    if (watchActive() && down && onWatchKey(e)) { e.preventDefault(); e.stopImmediatePropagation(); return; }
+    if (slowAvailable() && down && onWatchKey(e)) { e.preventDefault(); e.stopImmediatePropagation(); return; }
     if (!cfg.kbOn) return;
     const k = KEYMAP[e.code];
     if (!k) return;
@@ -173,13 +176,23 @@
     } catch (_) {}
   }
 
+  /* ---------- 練習スローを使ったあとの表示 ---------- */
+  addEventListener('message', (e) => {
+    if (e.source !== window || !e.data || e.data.__tg !== 'practiceUsed' || !document.body) return;
+    const b = document.createElement('div');
+    b.textContent = '練習モード：このタイムは記録されません（ページを開き直すと解除）';
+    b.style.cssText = 'position:fixed;top:10px;left:50%;transform:translateX(-50%);z-index:50;pointer-events:none;padding:5px 12px;border-radius:14px;background:rgba(216,68,47,.9);color:#fff;font:700 12px sans-serif';
+    document.body.appendChild(b);
+  });
+
   /* ---------- 走りを見るときの再生コントロール ---------- */
-  const SPEEDS = [1, 0.5, 0.25, 0.1];
+  const SPEEDS = [1, 0.75, 0.5, 0.25, 0.1];
   let spdIdx = 0, paused = false, panel = null, panelLabel = null;
   const watchActive = () => {
     const bar = $('wBar'), exit = $('wExit');
     return !!(bar && bar.classList.contains('on') && exit && !exit.hidden);
   };
+  const slowAvailable = () => watchActive() || cfg.practiceOn;
   function applyScale() {
     const v = paused ? 0 : SPEEDS[spdIdx];
     window.postMessage({ __tg: 'scale', v }, '*');
@@ -233,12 +246,15 @@
     else mouseBrake = Math.max(0, mouseBrake - dt / 0.1);
     brake = Math.max(brake, mouseBrake);
 
+    steer = clamp(steer * cfg.steerGain, -1, 1);
+    brake = clamp(brake * cfg.brakeGain, 0, 1);
     feed(steer, brake, dt);
     drawHud(steer, brake, src);
 
-    if (watchActive()) buildPanel();
+    if (sentPractice !== !!cfg.practiceOn) { sentPractice = !!cfg.practiceOn; window.postMessage({ __tg: 'practice', on: sentPractice }, '*'); }
+    if (slowAvailable()) buildPanel();
     else if (panel) { panel.remove(); panel = panelLabel = null; paused = false; spdIdx = 0; window.postMessage({ __tg: 'scale', v: 1 }, '*'); }
   }
-  let mouseBrake = 0;
+  let mouseBrake = 0, sentPractice = null;
   requestAnimationFrame(frame);
 })();

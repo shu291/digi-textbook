@@ -63,6 +63,9 @@ self.addEventListener('fetch', e => {
 
   if (url.origin !== location.origin) return;
 
+  // /touge/（別アプリのゲーム）はこのService Workerの対象外。教科書アプリの index.html キャッシュを上書きさせない
+  if (url.pathname.includes('/touge/')) return;
+
   // ページ遷移: ネット優先、だめならキャッシュ（オフライン起動）
   if (req.mode === 'navigate') {
     e.respondWith((async () => {

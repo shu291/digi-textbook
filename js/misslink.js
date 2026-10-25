@@ -39,8 +39,17 @@ async function mStore(name, mode = 'readonly') {
 
 export async function allMissNotes() { return reqProm((await mStore('notes')).getAll()); }
 export async function getMissNote(id) { return reqProm((await mStore('notes')).get(id)); }
-export async function putMissNote(n) { return reqProm((await mStore('notes', 'readwrite')).put(n)); }
-export async function deleteMissNote(id) { return reqProm((await mStore('notes', 'readwrite')).delete(id)); }
+const changed = () => window.dispatchEvent(new CustomEvent('miss-changed')); // 同期(sync.js)が聞いている
+export async function putMissNote(n) {
+  const r = await reqProm((await mStore('notes', 'readwrite')).put(n));
+  changed();
+  return r;
+}
+export async function deleteMissNote(id) {
+  const r = await reqProm((await mStore('notes', 'readwrite')).delete(id));
+  changed();
+  return r;
+}
 
 // この教科書アプリ由来の登録だけ（写真から登録したものはミスノート側で見る）
 export async function bookMissNotes(bookId = null) {

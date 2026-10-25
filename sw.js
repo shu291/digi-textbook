@@ -1,6 +1,6 @@
 // Service Worker: アプリ本体とCDNライブラリをキャッシュしてオフラインでも動くように
 // 注意: アプリのファイルを変更したら、このバージョンを上げること（キャッシュが更新される）
-const VER = 'v1.10.0';
+const VER = 'v1.11.0';
 const APP_CACHE = `digi-textbook-app-${VER}`;
 const CDN_CACHE = 'digi-textbook-cdn-v1';
 
@@ -20,6 +20,7 @@ const APP_ASSETS = [
   './js/draw.js',
   './js/reader.js',
   './js/misslink.js',
+  './js/sync.js',
 ];
 
 // pdf.js / Tesseract.js / OCR学習データの配信元

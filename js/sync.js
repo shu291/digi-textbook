@@ -4,7 +4,7 @@
 import { Books, Pages, Prefs } from './db.js';
 import { allMissNotes } from './misslink.js';
 
-export const DEFAULT_URL = 'https://digi-textbook-sync.netlify.app/api/sync';
+export const DEFAULT_URL = 'https://digi-textbook-sync.shu291.workers.dev/api/sync';
 const DEBOUNCE_MS = 4000;
 
 export const syncState = { status: 'off', last: null, error: '', pending: false };

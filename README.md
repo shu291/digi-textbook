@@ -93,9 +93,9 @@ GitHub Pages で公開するのがいちばん簡単（ミスノートと同じ�
 Claude が「どの単元でミスが多いか」を読めるように、ミス記録を自動でクラウドに送る（端末→クラウドの一方向）。
 
 - 送るもの: ミス記録のメタ情報（教科・原因・単元・ページ番号・復習の履歴）と本の目次。**ページ画像・書き込みは送らない**
-- 送り先: 自作の同期サーバー `https://digi-textbook-sync.netlify.app/api/sync`（Netlify Functions + Blobs・無料枠）。合言葉(Bearer)が合うリクエストだけ受け付ける
+- 送り先: 自作の同期サーバー `https://digi-textbook-sync.shu291.workers.dev/api/sync`（Cloudflare Workers + KV・無料枠。コードは /Users/so/digi-textbook-sync-cf/）。合言葉(Bearer)が合うリクエストだけ受け付ける
 - 設定: 設定画面「クラウド同期」で合言葉を入れる。または `https://shu291.github.io/digi-textbook/#sync=合言葉` を開くと自動で設定される
 - 送るタイミング: ミス登録・できた/まちがえた・削除の4秒後／起動時／画面を隠すとき／オフラインから復帰したとき。失敗してもアプリは止まらず、次の機会に再送
-- Mac側: `/Users/so/digi-textbook-sync/tools/weak.mjs` で単元別の苦手ランキング（`--json` で生データ）
-- サーバー側のコードと運用メモ: `/Users/so/digi-textbook-sync/`
+- Mac側: `/Users/so/digi-textbook-sync-cf/tools/weak.mjs` で単元別の苦手ランキング（`--json` で生データ）
+- サーバー側のコードと運用メモ: `/Users/so/digi-textbook-sync-cf/`（Netlify版 digi-textbook-sync は無料枠の共用リスクで廃止）
 - 検証(2026-10-26・Playwright+実サーバー): ミス登録→復習で間違い→約4秒でクラウドに反映、単元は目次から自動で付く、合言葉違いは401と画面表示、削除も反映

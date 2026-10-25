@@ -4,6 +4,7 @@ import { importPdf, appendPdf, rotateBook, makePdfPreview, makeCoverBlob } from 
 import { startOcr, cancelOcr, ocrJob, searchAll, ocrStatus } from './ocr.js';
 import { initReader, openBook, openBookForMiss } from './reader.js';
 import { drawState } from './draw.js';
+import { initSync, syncState, onSyncChange, pushNow, getKey, setKey } from './sync.js';
 import {
   bookMissNotes, dueMissNotes, getMissNote, deleteMissOfBook, noteCropUrl,
   INTERVALS, daysUntil, today, startOfDay,
@@ -35,6 +36,7 @@ async function init() {
   });
   $$('.view-tabs .vt').forEach(b => { b.onclick = () => switchView(b.dataset.view); });
   refreshMissBadge();
+  initSync().then(r => { if (r.fresh) toast('クラウド同期をオンにしました'); }).catch(() => { /* 同期の失敗で起動は止めない */ });
 
   // ミスノートからのリンク (#miss=id) で該当問題に直行
   if (location.hash.startsWith('#miss=')) {
@@ -815,7 +817,16 @@ async function openSettings() {
         <input type="file" id="stImportFile" accept="application/json,.json" hidden>
       </div>
     </div>
-    <p class="modal-note">じぶん教科書 v1.10 ・ 教科書 ${books.length}冊<br>データはこの端末の中だけに保存されます</p>
+    <div class="setting-card">
+      <b>クラウド同期（ミス記録）</b>
+      <p><small>ミスの記録だけを自動でクラウドに送ります（ページ画像・書き込みは送りません）。Claudeが苦手な単元を読んで、学習計画に使えます</small></p>
+      <div class="setting-row"><span id="stSyncState">…</span><button class="mini-btn" id="stSyncNow">いま同期</button></div>
+      <div class="modal-btns left">
+        <button class="btn ghost" id="stSyncKey">合言葉を入れる</button>
+        <button class="btn ghost" id="stSyncOff" hidden>やめる</button>
+      </div>
+    </div>
+    <p class="modal-note">じぶん教科書 v1.11 ・ 教科書 ${books.length}冊<br>ページ画像・書き込みはこの端末の中だけに保存されます</p>
     <div class="modal-btns"><button class="btn prime" data-x>閉じる</button></div>`);
   box.querySelector('[data-x]').onclick = closeModal;
   box.querySelector('#stPersist')?.addEventListener('click', async () => {
@@ -826,12 +837,46 @@ async function openSettings() {
     drawState.fingerDraw = e.target.checked;
     Prefs.set('fingerDraw', drawState.fingerDraw);
   };
+  bindSyncSettings(box);
   box.querySelector('#stExport').onclick = exportBackup;
   box.querySelector('#stImport').onclick = () => box.querySelector('#stImportFile').click();
   box.querySelector('#stImportFile').onchange = e => {
     const f = e.target.files[0];
     if (f) importBackup(f);
   };
+}
+
+function bindSyncSettings(box) {
+  const label = box.querySelector('#stSyncState');
+  const offBtn = box.querySelector('#stSyncOff');
+  const render = async () => {
+    if (!label.isConnected) return;
+    const has = !!(await getKey());
+    offBtn.hidden = !has;
+    box.querySelector('#stSyncNow').hidden = !has;
+    const t = syncState.last ? new Date(syncState.last).toLocaleString('ja-JP', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '';
+    label.textContent = !has ? 'オフ（合言葉が未設定）'
+      : syncState.status === 'sending' ? '送信中…'
+      : syncState.status === 'error' ? `⚠️ ${syncState.error}`
+      : t ? `✅ 最後の同期 ${t}` : 'オン（まだ送っていません）';
+  };
+  const off = onSyncChange(render);
+  render();
+  box.querySelector('#stSyncNow').onclick = async () => {
+    const ok = await pushNow();
+    toast(ok ? '同期しました' : '同期できませんでした');
+  };
+  box.querySelector('#stSyncKey').onclick = async () => {
+    const v = prompt('同期の合言葉を貼りつけてください（Macでもらったもの）');
+    if (v && /^[A-Za-z0-9_-]{16,128}$/.test(v.trim())) { await setKey(v.trim()); toast('合言葉を保存しました'); pushNow(); }
+    else if (v) toast('合言葉の形式が正しくありません');
+  };
+  offBtn.onclick = async () => {
+    if (await confirmDlg('クラウド同期をやめる？<br><small>この端末の合言葉を消します（クラウド上のデータは残ります）</small>', { ok: 'やめる' })) {
+      await setKey(''); toast('同期をやめました');
+    }
+  };
+  new MutationObserver(() => { if (!label.isConnected) { off(); } }).observe(document.body, { childList: true, subtree: true });
 }
 
 async function exportBackup() {

@@ -10,6 +10,8 @@ import {
   resolvePage, cropRect, deleteMissNote, clearCropCache, daysUntil,
 } from './misslink.js';
 import { uid } from './util.js';
+import { makePdf, canShareFiles } from './export.js';
+import { downloadBlob } from './util.js';
 
 const CANVAS_LONG = 1600; // 書き込みレイヤーの内部解像度（長辺）
 
@@ -55,6 +57,7 @@ export function initReader() {
     penTools: $('#penTools'), mainActions: $('#mainActions'),
     penDrawerBtn: $('#penDrawerBtn'), penCloseBtn: $('#penCloseBtn'),
     lockBtn: $('#lockBtn'),
+    dockUndo: $('#dockUndo'), dockRedo: $('#dockRedo'),
   });
 
   // 3 スロット生成
@@ -612,6 +615,10 @@ function bindUi() {
   });
   el.undoBtn.onclick = () => draw.undo();
   el.redoBtn.onclick = () => draw.redo();
+  el.dockUndo.onclick = () => draw.undo();
+  el.dockRedo.onclick = () => draw.redo();
+  $('#focusBtn').onclick = () => showUi(false);
+  $('#dockShow').onclick = () => showUi(true);
   el.sheetBtn.onclick = () => setSheet(!drawState.sheetMode);
   el.missBtn.onclick = () => setMissMode(!R.missMode);
   el.penDrawerBtn.onclick = () => setPenDrawer(true);
@@ -634,6 +641,9 @@ function showUi(show) {
   R.uiVisible = show;
   el.head.classList.toggle('hidden-bar', !show);
   el.foot.classList.toggle('hidden-bar', !show);
+  // バーを隠している間は、戻す用の小さなボタンだけ出す
+  document.body.classList.toggle('focus-mode', !show);
+  $('#focusDock').hidden = show;
 }
 
 function updateHud() {
@@ -645,8 +655,8 @@ function updateHud() {
 }
 
 function updateDrawHud() {
-  el.undoBtn.disabled = !draw.canUndo();
-  el.redoBtn.disabled = !draw.canRedo();
+  el.undoBtn.disabled = el.dockUndo.disabled = !draw.canUndo();
+  el.redoBtn.disabled = el.dockRedo.disabled = !draw.canRedo();
 }
 
 function updateSheetHud() {
@@ -1206,6 +1216,66 @@ async function runOcrFromReader(force = false) {
   }
 }
 
+// ============================================================ Goodnotesへ送る
+// 共有シートは「ボタンを押した直後」でないと開けないので、
+// 1) PDFを作る → 2) 出来たら「送る」ボタンを押してもらう、の2段階にする
+function openSendDialog() {
+  const cur = R.pageNo;
+  const box = openModal(`
+    <h3 class="modal-title">Goodnotesなどに送る</h3>
+    <div class="send-range">
+      <label><input type="radio" name="sr" value="cur" checked> いまのページ（p.${cur}）だけ</label>
+      <label><input type="radio" name="sr" value="range"> ページを指定
+        <span class="send-nums"><input id="sFrom" type="number" min="1" max="${R.total}" value="${cur}" inputmode="numeric"> 〜
+        <input id="sTo" type="number" min="1" max="${R.total}" value="${Math.min(R.total, cur + 4)}" inputmode="numeric"></span>
+      </label>
+    </div>
+    <p class="search-note" id="sMsg">書きこみ（ペン・マーカー）も一緒にPDFになります。</p>
+    <div class="modal-btns">
+      <button class="btn ghost" data-x>閉じる</button>
+      <button class="btn prime" id="sGo">PDFを作る</button>
+    </div>`, { sticky: true });
+  const msg = box.querySelector('#sMsg');
+  const go = box.querySelector('#sGo');
+  box.querySelector('[data-x]').onclick = closeModal;
+  let busy = false;
+  go.onclick = async () => {
+    if (busy) return;
+    let from = cur, to = cur;
+    if (box.querySelector('input[name=sr]:checked').value === 'range') {
+      from = clamp(Math.round(+box.querySelector('#sFrom').value) || 1, 1, R.total);
+      to = clamp(Math.round(+box.querySelector('#sTo').value) || from, 1, R.total);
+      if (from > to) [from, to] = [to, from];
+    }
+    busy = true;
+    go.disabled = true;
+    try {
+      await draw.saveNow(); // 描いている途中の線も含める
+      const blob = await makePdf(R.book.id, from, to, (i, n) => { msg.textContent = `PDFを作っています… ${i} / ${n}`; });
+      const name = `${R.book.title}_p${from}${to > from ? '-' + to : ''}.pdf`.replace(/[\\/:*?"<>|]/g, '_');
+      const file = new File([blob], name, { type: 'application/pdf' });
+      msg.textContent = `できました（${to - from + 1}ページ）。下のボタンで送り先を選んでね。`;
+      go.disabled = false;
+      busy = false;
+      if (canShareFiles(file)) {
+        go.textContent = '送る（共有メニュー）';
+        go.onclick = async () => {
+          try { await navigator.share({ files: [file], title: name }); closeModal(); }
+          catch (e) { if (e.name !== 'AbortError') toast('共有できませんでした。保存して開き直してください'); }
+        };
+      } else {
+        go.textContent = 'PDFを保存';
+        msg.textContent += '（この端末は共有に非対応なので、保存してからGoodnotesで開いてください）';
+        go.onclick = () => { downloadBlob(blob, name); closeModal(); };
+      }
+    } catch (e) {
+      msg.textContent = e.message || 'PDFを作れませんでした';
+      go.disabled = false;
+      busy = false;
+    }
+  };
+}
+
 // ============================================================ ⋯メニュー
 async function openReaderMenu() {
   const st = await ocrStatus(R.book.id);
@@ -1217,6 +1287,10 @@ async function openReaderMenu() {
     <div class="menu-list">
       <button class="menu-item" id="mOcr" ${ocrJob.running ? 'disabled' : ''}>
         <span>文字認識（OCR）を実行</span><small>${ocrLabel}${ocrJob.running ? '・実行中…' : ''}</small>
+      </button>
+      <button class="menu-item" id="mGoodnotes">
+        <span>Goodnotesなどに送る</span>
+        <small>書きこみ込みのPDFにして、共有メニューから送ります</small>
       </button>
       <button class="menu-item" id="mRotate">
         <span>ページの向きを回転</span>
@@ -1241,6 +1315,7 @@ async function openReaderMenu() {
       runOcrFromReader();
     }
   };
+  box.querySelector('#mGoodnotes').onclick = () => { closeModal(); openSendDialog(); };
   box.querySelector('#mRotate').onclick = async () => {
     closeModal();
     const id = R.book.id;
@@ -1263,7 +1338,8 @@ async function openReaderMenu() {
         <li><b>書き込む</b>：下のツールバーからペンやマーカーを選ぶ</li>
         <li><b>暗記マーカー</b>（緑）で答えを塗る → <b>赤シート</b>ボタンで隠す → タップでめくれる</li>
         <li><b>検索</b>：虫めがねボタン。スキャンした本は先に「文字認識」を実行してね</li>
-        <li><b>バーを隠す</b>：画面の真ん中をタップ</li>
+        <li><b>バーを隠す</b>：画面の真ん中をタップ／書きこみツールの［⛶］で、教科書だけの画面に（右下の小さなボタンで戻る）</li>
+        <li><b>Goodnotesに送る</b>：⋯メニュー →「Goodnotesなどに送る」</li>
       </ul>
       <div class="modal-btns"><button class="btn prime" data-x>OK</button></div>`)
       .querySelector('[data-x]').onclick = closeModal;

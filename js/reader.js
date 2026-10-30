@@ -13,7 +13,7 @@ import { uid } from './util.js';
 import { makePdf, canShareFiles } from './export.js';
 import { downloadBlob } from './util.js';
 
-const CANVAS_LONG = 1600; // 書き込みレイヤーの内部解像度（長辺）
+const CANVAS_LONG = 2400; // 書き込みレイヤーの内部解像度（長辺）
 
 const R = {
   book: null, pageNo: 1, total: 0,
@@ -286,6 +286,18 @@ function saveLastPage() {
 function applyView() {
   const { scale, tx, ty } = R.view;
   el.zoomWrap.style.transform = `translate(${tx}px, ${ty}px) scale(${scale})`;
+  settleRaster();
+}
+
+// will-change: transform のままだとSafariは等倍の絵を引き伸ばすだけでボケる。
+// 操作中は軽さ優先、止まって拡大中なら外して「いまの倍率」で描き直させる。
+let rasterTimer = null;
+function settleRaster() {
+  el.zoomWrap.style.willChange = el.pageRow.style.willChange = 'transform';
+  clearTimeout(rasterTimer);
+  rasterTimer = setTimeout(() => {
+    if (R.view.scale > 1.01) el.zoomWrap.style.willChange = el.pageRow.style.willChange = 'auto';
+  }, 150);
 }
 
 function resetView(animate) {

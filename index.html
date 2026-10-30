@@ -152,6 +152,11 @@
         </svg>
       </button>
       <span class="tool-sep"></span>
+      <button class="tool-btn" id="focusBtn" aria-label="バーを隠して教科書だけにする">
+        <svg viewBox="0 0 24 24" width="21" height="21" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M8 3H5a2 2 0 0 0-2 2v3M21 8V5a2 2 0 0 0-2-2h-3M3 16v3a2 2 0 0 0 2 2h3M16 21h3a2 2 0 0 0 2-2v-3"/>
+        </svg>
+      </button>
       <button class="tool-btn pen-close" id="penCloseBtn" aria-label="書きこみツールをとじる">
         <svg viewBox="0 0 24 24" width="21" height="21" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="m6 9 6 6 6-6"/></svg>
       </button>
@@ -176,6 +181,19 @@
       </button>
     </div>
   </footer>
+
+  <!-- 集中モード（バーを隠している間だけ出る小さなボタン） -->
+  <div id="focusDock" hidden>
+    <button class="dock-btn" id="dockUndo" aria-label="もどす" disabled>
+      <svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7v6h6"/><path d="M21 17a9 9 0 0 0-15-6.7L3 13"/></svg>
+    </button>
+    <button class="dock-btn" id="dockRedo" aria-label="やり直す" disabled>
+      <svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 7v6h-6"/><path d="M3 17a9 9 0 0 1 15-6.7L21 13"/></svg>
+    </button>
+    <button class="dock-btn dock-show" id="dockShow" aria-label="バーを表示">
+      <svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>
+    </button>
+  </div>
 
   <div id="judgeBar" hidden>
     <span id="jbHint">解き直してみよう</span>

@@ -34,6 +34,7 @@ function closeSession(id) {
   const s = sessions.get(id);
   if (!s) return;
   sessions.delete(id);
+  clearTimeout(s.timer);
   try { s.client.close(); } catch (_) {}
 }
 
@@ -125,7 +126,7 @@ function baseUrl(req) {
 
 // 再生: {device, file, loop?, volume?}
 app.post('/api/play', (req, res) => {
-  const { device, file, loop, volume } = req.body || {};
+  const { device, file, loop, volume, minutes } = req.body || {};
   const name = safeName(file);
   const full = path.join(MEDIA_DIR, name);
   if (!fs.existsSync(full)) return res.status(404).json({ error: 'ファイルがありません' });
@@ -141,6 +142,8 @@ app.post('/api/play', (req, res) => {
     s.current = media;
     const go = () => s.player.load(media, { autoplay: true }, (e) => {
       if (e) { closeSession(device); return res.status(500).json({ error: String(e.message || e) }); }
+      clearTimeout(s.timer);
+      if (minutes > 0) s.timer = setTimeout(() => { s.loop = false; s.current = null; s.player.stop(() => closeSession(device)); }, Math.min(minutes, 720) * 60000);
       res.json({ ok: true });
     });
     if (typeof volume === 'number') s.client.setVolume({ level: Math.min(1, Math.max(0, volume)) }, () => go());

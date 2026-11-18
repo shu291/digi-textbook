@@ -19,6 +19,14 @@ input[type=range]{width:100%}#msg{position:fixed;left:16px;right:16px;bottom:16p
 </style></head><body>
 <h1>🔊 スピーカーリモコン</h1>
 
+<div class="card"><h2>🐶 ワンタップ</h2>
+  <button class="p" id="calm" style="width:100%;font-size:20px;padding:18px">🐶 落ち着かせる</button>
+  <div class="sub" id="calmnote" style="margin-top:6px"></div>
+  <div class="row" style="margin-top:8px"><label class="sub" style="flex:none">自動で止める</label>
+  <select id="tmr"><option value="0">止めない</option><option value="10">10分</option><option value="30" selected>30分</option><option value="60">60分</option><option value="120">2時間</option></select></div>
+  <div class="sub">下のファイル一覧の ★ で「落ち着く音」を選びます(飼い主さんの声・ゆったりした音楽など)。ループ再生・音量は下の設定が使われます。</div>
+</div>
+
 <div class="card"><h2>スピーカー</h2>
   <select id="dev"></select>
   <div class="row" style="margin-top:8px"><button id="rescan">再検索</button></div>
@@ -64,17 +72,22 @@ $('dev').onchange=()=>localStorage.setItem('dev',dev());
 $('rescan').onclick=async()=>{await api('rescan',{method:'POST'});toast('検索中…');setTimeout(loadDevices,3000)};
 async function loadFiles(){
   const f=await api('files');
+  $('calmnote').textContent=fav()?'再生: '+fav():'まだ選んでいません';
   $('files').innerHTML=f.length?'':'まだありません。上から追加してください';
   f.forEach(x=>{const d=document.createElement('div');d.className='file';
-    d.innerHTML=`<span class="n"></span><button class="p">▶</button><button>🗑</button>`;
+    d.innerHTML=`<span class="n"></span><button>☆</button><button class="p">▶</button><button>🗑</button>`;
     d.querySelector('.n').textContent=x.name;
-    d.children[1].onclick=()=>play(x.name);
-    d.children[2].onclick=async()=>{if(confirm(x.name+' を削除?')){await api('files/'+encodeURIComponent(x.name),{method:'DELETE'});loadFiles()}};
+    const star=d.children[1];if(fav()===x.name)star.textContent='★';
+    star.onclick=()=>{localStorage.setItem('fav',x.name);loadFiles()};
+    d.children[2].onclick=()=>play(x.name);
+    d.children[3].onclick=async()=>{if(confirm(x.name+' を削除?')){await api('files/'+encodeURIComponent(x.name),{method:'DELETE'});loadFiles()}};
     $('files').appendChild(d)});
 }
+const fav=()=>localStorage.getItem('fav')||'';
+$('calm').onclick=()=>{if(!fav())return toast('★で落ち着く音を選んでください');$('loop').checked=true;play(fav())};
 async function play(name){
   if(!dev())return toast('スピーカーを選んでください');
-  try{toast('送信中…');await api('play',{method:'POST',body:{device:dev(),file:name,loop:$('loop').checked,volume:$('vol').value/100}});
+  try{toast('送信中…');await api('play',{method:'POST',body:{device:dev(),file:name,loop:$('loop').checked,volume:$('vol').value/100,minutes:Number($('tmr').value)}});
     $('now').textContent='▶ '+name;toast('再生開始')}catch(e){toast(e.message)}
 }
 const ctl=(p,msg)=>async()=>{try{await api(p,{method:'POST',body:{device:dev()}});if(msg)$('now').textContent=msg}catch(e){toast(e.message)}};
